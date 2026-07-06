@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, memo, useCallback } from "react";
 // Triggering a small change to ensure the deployment/build pipeline picks up the latest assets.
 import { motion, AnimatePresence } from "motion/react";
 import { BleClient } from '@capacitor-community/bluetooth-le';
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, Capacitor } from '@capacitor/core';
 const Esptool = registerPlugin<any>('Esptool');
 import { Network } from '@capacitor/network';
 import { Geolocation } from '@capacitor/geolocation';
@@ -713,6 +713,75 @@ export default function App() {
   const [flashStage, setFlashStage] = useState<string>('idle');
   const [flashMessage, setFlashMessage] = useState<string>('');
   const [showPluginMissingModal, setShowPluginMissingModal] = useState(false);
+
+  // Load physical files from native storage if running on Android/iOS
+  useEffect(() => {
+    const loadPhysicalFiles = async () => {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          // Ensure directories exist
+          try {
+            await Filesystem.mkdir({ path: 'images', directory: Directory.Documents, recursive: true });
+          } catch (e) {}
+          try {
+            await Filesystem.mkdir({ path: 'videos', directory: Directory.Documents, recursive: true });
+          } catch (e) {}
+
+          const imageFilesResult = await Filesystem.readdir({ path: 'images', directory: Directory.Documents });
+          const videoFilesResult = await Filesystem.readdir({ path: 'videos', directory: Directory.Documents });
+
+          const loadedImages = await Promise.all(imageFilesResult.files.map(async (file) => {
+            const stat = await Filesystem.stat({ path: `images/${file.name}`, directory: Directory.Documents });
+            const uri = await Filesystem.getUri({ path: `images/${file.name}`, directory: Directory.Documents });
+            return {
+              name: file.name,
+              size: (stat.size / 1024).toFixed(0) + " KB",
+              type: "image",
+              path: Capacitor.convertFileSrc(uri.uri),
+              physicalUri: uri.uri,
+              selected: true
+            };
+          }));
+
+          const loadedVideos = await Promise.all(videoFilesResult.files.map(async (file) => {
+            const stat = await Filesystem.stat({ path: `videos/${file.name}`, directory: Directory.Documents });
+            const uri = await Filesystem.getUri({ path: `videos/${file.name}`, directory: Directory.Documents });
+            return {
+              name: file.name,
+              size: (stat.size / 1024).toFixed(0) + " KB",
+              type: "video",
+              path: Capacitor.convertFileSrc(uri.uri),
+              physicalUri: uri.uri,
+              selected: true
+            };
+          }));
+
+          if (loadedImages.length > 0 || loadedVideos.length > 0) {
+            setState((prev: any) => {
+              const currentFiles = prev.storage?.files || [];
+              const merged = [...currentFiles];
+              [...loadedImages, ...loadedVideos].forEach(newF => {
+                if (!merged.some(f => f.name === newF.name)) {
+                  merged.push(newF);
+                }
+              });
+              return {
+                ...prev,
+                storage: {
+                  ...prev.storage,
+                  files: merged
+                }
+              };
+            });
+          }
+        } catch (err) {
+          console.error("Failed to read physical files:", err);
+        }
+      }
+    };
+
+    loadPhysicalFiles();
+  }, []);
 
   useEffect(() => {
     let logoTimer: any;
@@ -2896,6 +2965,12 @@ export default function App() {
 #define MOTOR_FREQ 5000       // תדר עבודה של המנוע (5kHz)
 #define MOTOR_RES 8           // רזולוציית בקרת מהירות (8 סיביות)
 
+// PHYSICAL SD CARD SPI CONFIGURATION (כרטיס זיכרון פיזי)
+#define SD_CS_PIN 5           // פין Chip Select עבור כרטיס ה-SD
+#define SD_MOSI_PIN 23        // פין MOSI של כרטיס ה-SD
+#define SD_MISO_PIN 19        // פין MISO של כרטיס ה-SD
+#define SD_SCK_PIN 18         // פין SCK של כרטיס ה-SD
+
 // HC-05 BLUETOOTH CLASSIC MODULE CONFIG (מודול בלוטות' חיצוני)
 #define HC05_BAUD 9600        // קצב ברירת מחדל של HC-05
 #define HC05_RX_PIN 16        // פין RX2 מחובר ל-TX של מודול HC-05
@@ -2938,6 +3013,8 @@ const char* PLAYBACK_FILES[PLAYBACK_FILE_COUNT] = {
 #include <NeoPixelBus.h>
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>
+#include <SPI.h>
+#include <SD.h>
 #include "Config.h"
 
 // =====================================================
@@ -3397,6 +3474,23 @@ void setup() {
     ElegantOTA.begin(&server);
     server.begin();
     Serial.println("[SETUP] Web server started");
+
+    // Init SPI and Physical SD Card
+    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+    Serial.println("[SETUP] SPI initialized");
+    if (!SD.begin(SD_CS_PIN)) {
+        Serial.println("[ERROR] Physical SD Card Mount Failed!");
+    } else {
+        Serial.println("[SUCCESS] Physical SD Card mounted successfully!");
+        // Verify playback files are accessible on the physical SD Card
+        for (int i = 0; i < PLAYBACK_FILE_COUNT; i++) {
+            if (SD.exists(PLAYBACK_FILES[i])) {
+                Serial.printf("[SD] Active playback file exists: %s\n", PLAYBACK_FILES[i]);
+            } else {
+                Serial.printf("[SD-WARN] Playback file not found on card: %s\n", PLAYBACK_FILES[i]);
+            }
+        }
+    }
 
     // Init BLE
     initBLE();
@@ -4520,33 +4614,86 @@ void loop() {
                       const file = e.target.files?.[0];
                       if (file) {
                         setToastMessage(`מעלה קובץ... / Uploading ${file.name}...`);
-                        try {
-                          const formData = new FormData();
-                          formData.append('file', file);
-                          
-                          const res = await fetch('/api/upload-file', {
-                            method: 'POST',
-                            body: formData
-                          });
-                          
-                          if (!res.ok) throw new Error("Upload failed");
-                          
-                          const data = await res.json();
-                          const fileUrl = data.url;
-                          
-                          const newFile = {
-                            name: file.name,
-                            size: (file.size / 1024).toFixed(0) + " KB",
-                            type: uploadDest,
-                            path: fileUrl,
-                            selected: true
-                          };
-                          const newFiles = [...(state.storage?.files || []), newFile];
-                          updateState("storage", "files", newFiles);
-                          setToastMessage(`קובץ ${file.name} הועלה בהצלחה ונרשם להקרנה!`);
-                        } catch (err) {
-                          console.error(err);
-                          setToastMessage("שגיאה בהעלאת הקובץ / Upload error");
+                        
+                        if (Capacitor.isNativePlatform()) {
+                          // NATIVE PLATFORM: Write directly to physical device filesystem
+                          try {
+                            const reader = new FileReader();
+                            reader.onload = async () => {
+                              try {
+                                const base64Data = reader.result as string;
+                                const base64Content = base64Data.split(',')[1];
+                                
+                                const dirPath = uploadDest === "image" ? "images" : "videos";
+                                const filePath = `${dirPath}/${file.name}`;
+                                
+                                const writeResult = await Filesystem.writeFile({
+                                  path: filePath,
+                                  data: base64Content,
+                                  directory: Directory.Documents,
+                                  recursive: true
+                                });
+                                
+                                const convertedUrl = Capacitor.convertFileSrc(writeResult.uri);
+                                
+                                const newFile = {
+                                  name: file.name,
+                                  size: (file.size / 1024).toFixed(0) + " KB",
+                                  type: uploadDest,
+                                  path: convertedUrl,
+                                  physicalUri: writeResult.uri,
+                                  selected: true
+                                };
+                                const newFiles = [...(state.storage?.files || []), newFile];
+                                updateState("storage", "files", newFiles);
+                                safeSaveLocal("holospin_state", JSON.stringify({
+                                  ...state,
+                                  storage: {
+                                    ...state.storage,
+                                    files: newFiles
+                                  }
+                                }));
+                                setToastMessage(`קובץ ${file.name} נשמר בהצלחה לאחסון המכשיר!`);
+                              } catch (fsErr: any) {
+                                console.error("Fs write failed:", fsErr);
+                                setToastMessage(`שגיאה בשמירת הקובץ: ${fsErr.message || fsErr}`);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          } catch (err: any) {
+                            console.error("Reader failed:", err);
+                            setToastMessage(`שגיאה בקריאת הקובץ: ${err.message || err}`);
+                          }
+                        } else {
+                          // WEB PLATFORM: Proxy to Express server API
+                          try {
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            
+                            const res = await fetch('/api/upload-file', {
+                              method: 'POST',
+                              body: formData
+                            });
+                            
+                            if (!res.ok) throw new Error("Upload failed");
+                            
+                            const data = await res.json();
+                            const fileUrl = data.url;
+                            
+                            const newFile = {
+                              name: file.name,
+                              size: (file.size / 1024).toFixed(0) + " KB",
+                              type: uploadDest,
+                              path: fileUrl,
+                              selected: true
+                            };
+                            const newFiles = [...(state.storage?.files || []), newFile];
+                            updateState("storage", "files", newFiles);
+                            setToastMessage(`קובץ ${file.name} הועלה בהצלחה ונרשם להקרנה!`);
+                          } catch (err) {
+                            console.error(err);
+                            setToastMessage("שגיאה בהעלאת הקובץ / Upload error");
+                          }
                         }
                       }
                     }}

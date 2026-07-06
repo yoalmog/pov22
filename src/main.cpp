@@ -10,7 +10,8 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-#include <LittleFS.h>
+#include <SPI.h>
+#include <SD.h>
 #include <ArduinoJson.h>
 
 // --- HARDWARE CONFIGURATION ---
@@ -19,6 +20,12 @@
 #define HALL_PIN 12
 #define NUM_LEDS 256
 #define MAX_RPM 1800
+
+// --- SD CARD PINS ---
+#define SD_CS_PIN 5
+#define SD_MOSI_PIN 23
+#define SD_MISO_PIN 19
+#define SD_SCK_PIN 18
 
 CRGB leds[NUM_LEDS];
 AsyncWebServer server(80);
@@ -157,7 +164,14 @@ void setupServerTransitions() {
 
 void setup() {
     Serial.begin(115200);
-    LittleFS.begin();
+    
+    // SPI and SD Card Setup
+    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+    if (!SD.begin(SD_CS_PIN)) {
+        Serial.println("[ERROR] SD Card Mount Failed!");
+    } else {
+        Serial.println("[SUCCESS] SD Card Mounted successfully!");
+    }
     
     // Hardware Setup
     pinMode(HALL_PIN, INPUT_PULLUP);

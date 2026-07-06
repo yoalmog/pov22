@@ -49,66 +49,108 @@ public class EsptoolPlugin extends Plugin {
 
     @PluginMethod
     public void flash(PluginCall call) {
-        Context context = getContext();
-        UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
-        HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-        
-        if (deviceList.isEmpty()) {
-            call.reject("No USB OTG devices detected. Please connect your ESP32 board using an OTG cable.");
-            return;
-        }
-
-        // Find standard USB-to-Serial converter matching ESP32 boards
-        UsbDevice targetDevice = null;
-        for (UsbDevice device : deviceList.values()) {
-            int vid = device.getVendorId();
-            // Common ESP32 USB to Serial chips:
-            // CP210x: 0x10C4
-            // CH340: 0x1A86
-            // FTDI: 0x0403
-            if (vid == 0x10C4 || vid == 0x1A86 || vid == 0x0403) {
-                targetDevice = device;
-                break;
+        try {
+            Context context = getContext();
+            UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+            if (usbManager == null) {
+                call.reject("USB Service is not available on this device.");
+                return;
             }
-        }
-
-        if (targetDevice == null) {
-            targetDevice = deviceList.values().iterator().next();
-        }
-
-        final UsbDevice finalDevice = targetDevice;
-        if (!usbManager.hasPermission(finalDevice)) {
-            PendingIntent permissionIntent = PendingIntent.getBroadcast(
-                context, 
-                0, 
-                new Intent(ACTION_USB_PERMISSION), 
-                PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-            );
             
-            BroadcastReceiver usbReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    String action = intent.getAction();
-                    if (ACTION_USB_PERMISSION.equals(action)) {
-                        synchronized (this) {
-                            UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                            if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                                if (device != null) {
-                                    startFlashingSequence(call, device);
-                                }
-                            } else {
-                                call.reject("Permission denied for USB device.");
-                            }
-                        }
-                        context.unregisterReceiver(this);
-                    }
+            HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+            if (deviceList == null || deviceList.isEmpty()) {
+                call.reject("No USB OTG devices detected. Please connect your ESP32 board using an OTG cable.");
+                return;
+            }
+
+            // Find standard USB-to-Serial converter matching ESP32 boards
+            UsbDevice targetDevice = null;
+            for (UsbDevice device : deviceList.values()) {
+                if (device == null) continue;
+                int vid = device.getVendorId();
+                // Common ESP32 USB to Serial chips:
+                // CP210x: 0x10C4
+                // CH340: 0x1A86
+                // FTDI: 0x0403
+                if (vid == 0x10C4 || vid == 0x1A86 || vid == 0x0403) {
+                    targetDevice = device;
+                    break;
                 }
-            };
-            
-            context.registerReceiver(usbReceiver, new IntentFilter(ACTION_USB_PERMISSION));
-            usbManager.requestPermission(finalDevice, permissionIntent);
-        } else {
-            startFlashingSequence(call, finalDevice);
+            }
+
+            if (targetDevice == null) {
+                targetDevice = deviceList.values().iterator().next();
+            }
+
+            if (targetDevice == null) {
+                call.reject("Failed to resolve a target USB device.");
+                return;
+            }
+
+            final UsbDevice finalDevice = targetDevice;
+            if (!usbManager.hasPermission(finalDevice)) {
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    flags |= PendingIntent.FLAG_MUTABLE;
+                }
+
+                PendingIntent permissionIntent = PendingIntent.getBroadcast(
+                    context, 
+                    0, 
+                    new Intent(ACTION_USB_PERMISSION), 
+                    flags
+                );
+                
+                final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context ctx, Intent intent) {
+                        try {
+                            String action = intent.getAction();
+                            if (ACTION_USB_PERMISSION.equals(action)) {
+                                synchronized (this) {
+                                    UsbDevice device = null;
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class);
+                                    } else {
+                                        device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                                    }
+                                    
+                                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                                        if (device != null) {
+                                            startFlashingSequence(call, device);
+                                        } else {
+                                            call.reject("Permission granted but device was null.");
+                                        }
+                                    } else {
+                                        call.reject("Permission denied for USB device.");
+                                    }
+                                }
+                                try {
+                                    ctx.unregisterReceiver(this);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Unregister receiver failed", e);
+                                }
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error in onReceive", e);
+                            call.reject("Error in permission receiver: " + e.getMessage());
+                        }
+                    }
+                };
+                
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(usbReceiver, new IntentFilter(ACTION_USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    context.registerReceiver(usbReceiver, new IntentFilter(ACTION_USB_PERMISSION));
+                }
+                
+                usbManager.requestPermission(finalDevice, permissionIntent);
+            } else {
+                startFlashingSequence(call, finalDevice);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed during flash setup", e);
+            call.reject("USB flashing setup crash prevented: " + e.getMessage());
         }
     }
 
