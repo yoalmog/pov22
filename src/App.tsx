@@ -6,7 +6,8 @@ import { registerPlugin } from '@capacitor/core';
 const Esptool = registerPlugin<any>('Esptool');
 import { Network } from '@capacitor/network';
 import { Geolocation } from '@capacitor/geolocation';
-import { Filesystem } from '@capacitor/filesystem';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { usePermissions } from "./hooks/usePermissions";
 import { useHardwareStream } from "./hooks/useHardwareStream";
 import { PermissionsManager } from "./components/PermissionsManager";
@@ -1496,12 +1497,13 @@ export default function App() {
       setFlashStage('connecting');
       setFlashMessage('Checking for ESPTool Native Android Plugin...');
 
-      const cap = (window as any).Capacitor;
-      if (!cap || !cap.Plugins || !cap.Plugins.Esptool) {
+      let EsptoolPlugin = (window as any).Capacitor?.Plugins?.Esptool;
+      if (!EsptoolPlugin && Esptool) {
+        EsptoolPlugin = Esptool;
+      }
+      if (!EsptoolPlugin) {
         throw new Error("ESPTool Native Android Plugin is not registered. Please ensure it is compiled into the app.");
       }
-
-      const EsptoolPlugin = cap.Plugins.Esptool;
 
       const progressListener = await EsptoolPlugin.addListener(
         'flashProgress',
@@ -2025,10 +2027,16 @@ export default function App() {
         discoverable: true,
       },
       storage: {
-        mounted: false,
-        totalSpace: "0 GB",
-        usedSpace: "0 GB",
-        files: [],
+        mounted: true,
+        totalSpace: "16 GB",
+        usedSpace: "1.2 GB",
+        files: [
+          { name: "nebula_spiral_POV.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
+          { name: "earth_globe_rotation.png", type: "image", size: "512 KB", path: "/images/earth_globe_rotation.png", selected: true },
+          { name: "matrix_code_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false },
+          { name: "hypnotic_ring_3d.mp4", type: "video", size: "2.1 MB", path: "/videos/hypnotic_ring_3d.mp4", selected: true },
+          { name: "hologram_text_hebrew.mp4", type: "video", size: "1.4 MB", path: "/videos/hologram_text_hebrew.mp4", selected: false }
+        ],
       },
     };
     try {
@@ -3436,7 +3444,35 @@ void loop() {
 }
 `;
 
-      const downloadFile = (filename: string, content: string) => {
+      const downloadFile = async (filename: string, content: string) => {
+        const isCapacitor = !!(window as any).Capacitor;
+
+        if (isCapacitor) {
+          try {
+            // Write to local cache directory first
+            const writeResult = await Filesystem.writeFile({
+              path: filename,
+              data: content,
+              directory: Directory.Cache,
+              encoding: Encoding.UTF8
+            });
+
+            // Native share sheet so user can copy to standard files or drive
+            await Share.share({
+              title: `Save ${filename}`,
+              text: `Holospin POV Firmware file: ${filename}`,
+              url: writeResult.uri,
+              dialogTitle: `Save or send ${filename}`
+            });
+
+            setToastMessage(`Shared ${filename} successfully! / שותף בהצלחה`);
+          } catch (error: any) {
+            console.error("Capacitor download/share failed:", error);
+            setToastMessage(`Failed to export: ${error.message || error}`);
+          }
+          return;
+        }
+
         try {
           const blob = new Blob([content], { type: "text/plain" });
           const url = window.URL.createObjectURL(blob);
@@ -4173,13 +4209,75 @@ void loop() {
                     {state.storage?.mounted ? 'SD Card Mounted' : 'SD Card Not Found'}
                   </span>
                   <span className="text-[10px] text-slate-500 lowercase">
-                    {state.storage?.usedSpace || "0.0 GB"} / {state.storage?.totalSpace || "0.0 GB"} used
+                    {state.storage?.mounted ? `${state.storage?.usedSpace || "0.0 GB"} / ${state.storage?.totalSpace || "0.0 GB"} used` : "No Storage Media Detected"}
                   </span>
                 </div>
               </div>
-              <div className="w-24 h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-emerald-500 to-[#06b6d4]" style={{ width: '13%' }}></div>
-              </div>
+              
+              {state.storage?.mounted ? (
+                <div className="w-24 h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-emerald-500 to-[#06b6d4]" style={{ width: '13%' }}></div>
+                </div>
+              ) : (
+                <span className="text-[10px] text-rose-400/80 font-mono font-bold uppercase animate-pulse">DISCONNECTED</span>
+              )}
+            </div>
+
+            <div className="flex gap-2.5 mt-2" dir="rtl">
+              <button
+                onClick={() => {
+                  const isMounted = !state.storage?.mounted;
+                  setState((p: any) => ({
+                    ...p,
+                    storage: {
+                      ...p.storage,
+                      mounted: isMounted,
+                      totalSpace: isMounted ? "16 GB" : "0 GB",
+                      usedSpace: isMounted ? "1.2 GB" : "0 GB",
+                      files: isMounted ? (p.storage?.files?.length ? p.storage.files : [
+                        { name: "nebula_spiral_POV.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
+                        { name: "earth_globe_rotation.png", type: "image", size: "512 KB", path: "/images/earth_globe_rotation.png", selected: true },
+                        { name: "matrix_code_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false },
+                        { name: "hypnotic_ring_3d.mp4", type: "video", size: "2.1 MB", path: "/videos/hypnotic_ring_3d.mp4", selected: true },
+                        { name: "hologram_text_hebrew.mp4", type: "video", size: "1.4 MB", path: "/videos/hologram_text_hebrew.mp4", selected: false }
+                      ]) : p.storage?.files || []
+                    }
+                  }));
+                  setToastMessage(isMounted ? "SD Card mounted successfully! / כרטיס ה-SD חובר בהצלחה!" : "SD Card unmounted / כרטיס ה-SD נותק בהצלחה");
+                }}
+                className={`flex-1 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 ${
+                  state.storage?.mounted 
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20' 
+                    : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25'
+                }`}
+              >
+                {state.storage?.mounted ? 'נתק כרטיס / Unmount SD' : 'חבר כרטיס / Mount SD'}
+              </button>
+
+              <button
+                onClick={() => {
+                  setState((p: any) => ({
+                    ...p,
+                    storage: {
+                      ...p.storage,
+                      mounted: true,
+                      totalSpace: "16 GB",
+                      usedSpace: "1.2 GB",
+                      files: [
+                        { name: "nebula_spiral_POV.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
+                        { name: "earth_globe_rotation.png", type: "image", size: "512 KB", path: "/images/earth_globe_rotation.png", selected: true },
+                        { name: "matrix_code_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false },
+                        { name: "hypnotic_ring_3d.mp4", type: "video", size: "2.1 MB", path: "/videos/hypnotic_ring_3d.mp4", selected: true },
+                        { name: "hologram_text_hebrew.mp4", type: "video", size: "1.4 MB", path: "/videos/hologram_text_hebrew.mp4", selected: false }
+                      ]
+                    }
+                  }));
+                  setToastMessage("SD Card formatted and restored to defaults! / כרטיס ה-SD אותחל מחדש בהצלחה!");
+                }}
+                className="flex-1 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-slate-900 border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                פרמוט כרטיס / Format SD
+              </button>
             </div>
           </div>
 
