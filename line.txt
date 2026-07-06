@@ -1,0 +1,1 @@
+                      <span className="text-sm font-bold text-white tracking-tight">HoloSpin POV ESP32</span>

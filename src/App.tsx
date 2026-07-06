@@ -913,6 +913,13 @@ export default function App() {
     }
   };
   const [subPage, setSubPage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (subPage === "storage") {
+      fetchSDCardFiles();
+    }
+  }, [subPage]);
+
   const [bgImageId, setBgImageId] = useState(() => safeGetLocal("holospin_bgImageId") || "video1");
   
   useEffect(() => {
@@ -988,7 +995,7 @@ export default function App() {
       
       const effectName = EFFECTS.find(e => e.id === effectId)?.label || effectId;
       
-      // Simulate remote control command sending to HC-05 Bluetooth transceiver
+      // Send remote control command to HC-05 Bluetooth transceiver
       const bluetoothCommand = `EFFECT:${effectId}\n`;
       console.log(`[HC-05 Transmission] Sending serial sequence: "${bluetoothCommand.trim()}"`);
       
@@ -1106,7 +1113,7 @@ export default function App() {
     { 
       id: 'swipe_h', 
       title: 'Horizontal Swiping', 
-      desc: 'Move your open hand left or right across the screen to change the simulated motor speed.', 
+      desc: 'Move your open hand left or right across the screen to change the motor speed.', 
       icon: <MoveHorizontal className="w-12 h-12 text-[#00b4d8]" />,
       animation: {
         animate: { x: [-15, 15, -15], opacity: [0.5, 1, 0.5] },
@@ -1179,9 +1186,11 @@ export default function App() {
     const interval = setInterval(() => {
       setSyncHistory(prev => {
         const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        // Use real telemetry if connected, otherwise simulate some high-quality jitter
-        const qualityBase = streamData?.syncQuality || 100;
-        const jitter = Math.random() * 2;
+        // Use real telemetry if connected
+        const qualityBase = streamData?.syncQuality || 0;
+        if (!isConnected && qualityBase === 0) return prev; 
+        
+        const jitter = isConnected ? Math.random() * 2 : 0;
         const nextVal = Math.max(0, Math.min(100, Math.round(qualityBase - jitter)));
         
         return [...prev, { time: now, quality: nextVal }].slice(-20);
@@ -1414,6 +1423,7 @@ export default function App() {
   const [showCalibrateModal, setShowCalibrateModal] = useState(false);
   const [calibrationStage, setCalibrationStage] = useState<"idle" | "requesting" | "calibrating" | "success" | "error">("idle");
   const [deviceStatus, setDeviceStatus] = useState<string>("ready");
+  const [chipModel, setChipModel] = useState<string | null>(null);
   
   const handleDownloadLogs = async () => {
     try {
@@ -1664,17 +1674,27 @@ export default function App() {
 
         if (wifiRes) {
           const isReal = isLocalHost;
-          bleDevices.push({
-            id: isReal ? "192.168.4.1" : "simulated",
-            name: isReal ? "Holospin_Wi-Fi" : "Holospin_Simulated",
-            ip: isReal ? "192.168.4.1" : "Local",
-            strength: -30,
-            type: "WIFI"
-          });
+          // Identify model if possible from health check or similar
+          let model = "ESP32";
+          try {
+            const data = await wifiRes.json();
+            if (data.model) model = data.model;
+          } catch(e) {}
+
+          if (isReal) {
+            bleDevices.push({
+              id: "192.168.4.1",
+              name: "Holospin_Wi-Fi",
+              ip: "192.168.4.1",
+              strength: -30,
+              type: "WIFI",
+              model: model
+            });
+          }
         }
       } catch (e) {}
 
-      // 3. Backend Scan (Optional/Mock fallback)
+      // 3. Backend Scan
       try {
         const netRes = await fetch("/scan").catch(() => null);
         if (netRes && netRes.ok) {
@@ -1684,9 +1704,10 @@ export default function App() {
               bleDevices.push({
                 id: n.ssid,
                 name: n.ssid,
-                ip: "192.168.4.1",
+                ip: n.ip || "192.168.4.1",
                 strength: n.signal || n.rssi,
-                type: "WIFI"
+                type: "WIFI",
+                model: n.model
               });
             }
           });
@@ -1787,6 +1808,62 @@ export default function App() {
     calibrationStageRef.current = calibrationStage;
   }, [calibrationStage]);
 
+  const fetchSDCardFiles = async () => {
+    try {
+      const isLocalHost = window.location.hostname === "192.168.4.1";
+      const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
+      const res = await fetch(`${baseUrl}/api/files`);
+      if (!res.ok) throw new Error("Failed to read from ESP32 SD Card");
+      const files = await res.json();
+      
+      const mappedFiles = files.map((f: any) => ({
+        name: f.name,
+        size: f.size || "Unknown KB",
+        type: f.type || (f.name.toLowerCase().endsWith(".mp4") ? "video" : "image"),
+        path: f.path || `${baseUrl}/sd/${f.name}`,
+        selected: f.selected !== undefined ? f.selected : true
+      }));
+      
+      setState((p: any) => ({
+        ...p,
+        storage: {
+          ...p.storage,
+          mounted: true,
+          files: mappedFiles
+        }
+      }));
+    } catch (err) {
+      console.error("Failed to read SD Card files:", err);
+      setToastMessage("שגיאה בקריאת הקבצים: וודא חיבור למכשיר / Error: Check device connection");
+    }
+  };
+
+  const handleWriteFileToESP32 = async (filename: string, content: string) => {
+    try {
+      setToastMessage(`כותב ${filename} למכשיר... / Writing ${filename} to ESP32...`);
+      const isLocalHost = window.location.hostname === "192.168.4.1";
+      const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
+      
+      const res = await fetch(`${baseUrl}/api/write-file`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ filename, content })
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Failed to write file ${filename}`);
+      }
+      
+      setToastMessage(`הקובץ ${filename} נכתב בהצלחה ל-ESP32! / ${filename} written successfully to ESP32!`);
+      fetchSDCardFiles(); // Refresh file list
+    } catch (err: any) {
+      console.error(err);
+      setToastMessage(`שגיאה בכתיבת הקובץ למכשיר: ${err.message || err}`);
+    }
+  };
+
   // Status polling
   const fetchStatus = async () => {
     try {
@@ -1802,6 +1879,7 @@ export default function App() {
       const data = await res.json();
       setIsConnected(true);
       
+      if (data.model) setChipModel(data.model);
       if (data.rpm !== undefined) setRpm(data.rpm);
       if (data.status) {
         setDeviceStatus(data.status);
@@ -1813,20 +1891,10 @@ export default function App() {
         }
       }
     } catch (e) {
-      // Expected error if disconnected.
-      if (calibrationStageRef.current === "calibrating" || calibrationStageRef.current === "requesting") {
-        setIsConnected(true);
-        setDeviceStatus("calibrating");
-        setRpm(240);
-      } else if (calibrationStageRef.current === "success") {
-        setIsConnected(true);
-        setDeviceStatus("ready");
-        setRpm(125);
-      } else {
-        setIsConnected(isBluetoothConnected);
-        setDeviceStatus(isBluetoothConnected ? "ready" : "disconnected");
-        if (!isBluetoothConnected) setRpm(0);
-      }
+      // Direct, non-simulated error handling when the device is offline
+      setIsConnected(isBluetoothConnected);
+      setDeviceStatus(isBluetoothConnected ? "ready" : "disconnected");
+      if (!isBluetoothConnected) setRpm(0);
     }
   };
 
@@ -1961,34 +2029,20 @@ export default function App() {
       const isLocalHost = window.location.hostname === "192.168.4.1";
       const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/calibrate" : "/calibrate";
       
-      try {
-        const res = await fetch(targetUrl, { method: "POST" });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === "calibrating") {
-            setCalibrationStage("calibrating");
-            return;
-          }
-        }
-      } catch (apiErr) {
-        console.warn("Hardware endpoint failed, starting high-fidelity preview calibration simulation...", apiErr);
+      const res = await fetch(targetUrl, { method: "POST" });
+      if (!res.ok) {
+        throw new Error("מכשיר לא הגיב לבקשת כיול / Device failed to respond to calibration request");
       }
-
-      // Simulation mode fallback for web preview
-      setTimeout(() => {
+      const data = await res.json();
+      if (data.status === "calibrating") {
         setCalibrationStage("calibrating");
-        setDeviceStatus("calibrating");
-        
-        setTimeout(() => {
-          setCalibrationStage("success");
-          setDeviceStatus("ready");
-          setRpm(125); // Set stable simulation RPM
-        }, 3000);
-      }, 1200);
-
-    } catch (err) {
+      } else {
+        throw new Error("המכשיר סירב להתחיל כיול / Device rejected calibration initialization");
+      }
+    } catch (err: any) {
       console.error(err);
       setCalibrationStage("error");
+      setToastMessage(`שגיאת כיול: ${err.message || err}`);
     }
   };
 
@@ -2171,6 +2225,19 @@ export default function App() {
   const renderHeader = () => {
     const statusIndicator = (
       <div className="flex items-center gap-4">
+        {isConnected && chipModel && (
+          <div className="flex flex-col items-center pt-1 w-12 group relative">
+            <Cpu className="w-5 h-5 text-amber-500 animate-pulse" />
+            <div className="flex items-center gap-1 mt-1 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">
+              <span className="text-[6px] text-amber-500 font-bold tracking-widest whitespace-nowrap">
+                {chipModel}
+              </span>
+            </div>
+            <div className="absolute top-full mt-1 hidden group-hover:block bg-slate-900 border border-slate-800 text-[8px] text-slate-300 p-2 rounded shadow-xl whitespace-nowrap z-50">
+              Detected hardware version
+            </div>
+          </div>
+        )}
         {/* Bluetooth Indicator / Button */}
         <button 
           onClick={handleBluetoothConnect}
@@ -3657,6 +3724,13 @@ void loop() {
                 >
                   <Download className="w-4 h-4" />
                 </button>
+                <button
+                  onClick={() => handleWriteFileToESP32("Config.h", headerCode)}
+                  className="text-emerald-400 hover:text-emerald-300 transition px-2 py-0.5 text-[9px] border border-emerald-800 rounded-lg uppercase tracking-wider font-bold bg-emerald-950/40 hover:bg-emerald-950/80 flex items-center gap-1 active:scale-95 ml-1"
+                >
+                  <Cpu className="w-3 h-3" />
+                  <span>Write to ESP32</span>
+                </button>
               </div>
             </div>
             <div className="bg-[#050608] p-4 overflow-x-auto text-xs font-mono text-slate-300 border-t border-slate-800/80">
@@ -3679,6 +3753,13 @@ void loop() {
                   className="text-slate-400 hover:text-white transition p-1"
                 >
                   <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleWriteFileToESP32("main.ino", inoCode)}
+                  className="text-emerald-400 hover:text-emerald-300 transition px-2 py-0.5 text-[9px] border border-emerald-800 rounded-lg uppercase tracking-wider font-bold bg-emerald-950/40 hover:bg-emerald-950/80 flex items-center gap-1 active:scale-95 ml-1"
+                >
+                  <Cpu className="w-3 h-3" />
+                  <span>Write to ESP32</span>
                 </button>
               </div>
             </div>
@@ -4319,58 +4400,11 @@ void loop() {
 
             <div className="flex gap-2.5 mt-2" dir="rtl">
               <button
-                onClick={() => {
-                  const isMounted = !state.storage?.mounted;
-                  setState((p: any) => ({
-                    ...p,
-                    storage: {
-                      ...p.storage,
-                      mounted: isMounted,
-                      totalSpace: isMounted ? "16 GB" : "0 GB",
-                      usedSpace: isMounted ? "1.2 GB" : "0 GB",
-                      files: isMounted ? (p.storage?.files?.length ? p.storage.files : [
-                        { name: "nebula_spiral_POV.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
-                        { name: "earth_globe_rotation.png", type: "image", size: "512 KB", path: "/images/earth_globe_rotation.png", selected: true },
-                        { name: "matrix_code_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false },
-                        { name: "hypnotic_ring_3d.mp4", type: "video", size: "2.1 MB", path: "/videos/hypnotic_ring_3d.mp4", selected: true },
-                        { name: "hologram_text_hebrew.mp4", type: "video", size: "1.4 MB", path: "/videos/hologram_text_hebrew.mp4", selected: false }
-                      ]) : p.storage?.files || []
-                    }
-                  }));
-                  setToastMessage(isMounted ? "SD Card mounted successfully! / כרטיס ה-SD חובר בהצלחה!" : "SD Card unmounted / כרטיס ה-SD נותק בהצלחה");
-                }}
-                className={`flex-1 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 ${
-                  state.storage?.mounted 
-                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20' 
-                    : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25'
-                }`}
+                onClick={fetchSDCardFiles}
+                className="flex-1 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest bg-gradient-to-r from-emerald-600 to-teal-500 text-white hover:from-emerald-500 hover:to-teal-400 transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] border border-emerald-500/20"
               >
-                {state.storage?.mounted ? 'נתק כרטיס / Unmount SD' : 'חבר כרטיס / Mount SD'}
-              </button>
-
-              <button
-                onClick={() => {
-                  setState((p: any) => ({
-                    ...p,
-                    storage: {
-                      ...p.storage,
-                      mounted: true,
-                      totalSpace: "16 GB",
-                      usedSpace: "1.2 GB",
-                      files: [
-                        { name: "nebula_spiral_POV.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
-                        { name: "earth_globe_rotation.png", type: "image", size: "512 KB", path: "/images/earth_globe_rotation.png", selected: true },
-                        { name: "matrix_code_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false },
-                        { name: "hypnotic_ring_3d.mp4", type: "video", size: "2.1 MB", path: "/videos/hypnotic_ring_3d.mp4", selected: true },
-                        { name: "hologram_text_hebrew.mp4", type: "video", size: "1.4 MB", path: "/videos/hologram_text_hebrew.mp4", selected: false }
-                      ]
-                    }
-                  }));
-                  setToastMessage("SD Card formatted and restored to defaults! / כרטיס ה-SD אותחל מחדש בהצלחה!");
-                }}
-                className="flex-1 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-slate-900 border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                פרמוט כרטיס / Format SD
+                <RefreshCw className="w-4 h-4 animate-spin-slow" />
+                רענן כרטיס SD / Refresh SD Card
               </button>
             </div>
           </div>
@@ -4437,9 +4471,36 @@ void loop() {
                           
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                             <button
-                              onClick={() => {
-                                updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
-                                setToastMessage(`Deleted file ${file.name}`);
+                              onClick={async () => {
+                                try {
+                                  setToastMessage(`מוחק את ${file.name}... / Deleting ${file.name}...`);
+                                  const isLocalHost = window.location.hostname === "192.168.4.1";
+                                  const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
+                                  
+                                  const res = await fetch(`${baseUrl}/api/delete-file`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ filename: file.name })
+                                  });
+                                  if (!res.ok) throw new Error();
+                                  setToastMessage(`הקובץ ${file.name} נמחק בהצלחה! / Deleted successfully!`);
+                                  fetchSDCardFiles();
+                                } catch (e) {
+                                  try {
+                                    const res = await fetch(`/api/delete-file`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ filename: file.name })
+                                    });
+                                    if (res.ok) {
+                                      setToastMessage(`הקובץ ${file.name} נמחק משרת הפיתוח!`);
+                                      fetchSDCardFiles();
+                                      return;
+                                    }
+                                  } catch (err) {}
+                                  updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
+                                  setToastMessage(`הקובץ הוסר מהתצוגה / File removed from view`);
+                                }
                               }}
                               className="p-1.5 text-slate-500 hover:text-rose-500 rounded transition cursor-pointer"
                             >
@@ -4513,9 +4574,36 @@ void loop() {
                           
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                             <button
-                              onClick={() => {
-                                updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
-                                setToastMessage(`Deleted file ${file.name}`);
+                              onClick={async () => {
+                                try {
+                                  setToastMessage(`מוחק את ${file.name}... / Deleting ${file.name}...`);
+                                  const isLocalHost = window.location.hostname === "192.168.4.1";
+                                  const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
+                                  
+                                  const res = await fetch(`${baseUrl}/api/delete-file`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ filename: file.name })
+                                  });
+                                  if (!res.ok) throw new Error();
+                                  setToastMessage(`הקובץ ${file.name} נמחק בהצלחה! / Deleted successfully!`);
+                                  fetchSDCardFiles();
+                                } catch (e) {
+                                  try {
+                                    const res = await fetch(`/api/delete-file`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ filename: file.name })
+                                    });
+                                    if (res.ok) {
+                                      setToastMessage(`הקובץ ${file.name} נמחק משרת הפיתוח!`);
+                                      fetchSDCardFiles();
+                                      return;
+                                    }
+                                  } catch (err) {}
+                                  updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
+                                  setToastMessage(`הקובץ הוסר מהתצוגה / File removed from view`);
+                                }
                               }}
                               className="p-1.5 text-slate-500 hover:text-rose-500 rounded transition cursor-pointer"
                             >
@@ -5363,13 +5451,13 @@ void loop() {
                       <Cpu className="w-5 h-5 text-blue-400" />
                    </div>
                    <div className="flex flex-col">
-                      <span className="text-sm font-bold text-white tracking-tight">HoloSpin POV ESP32</span>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">{state.wifi.ip || "192.168.4.1"}</span>
+                      <span className="text-sm font-bold text-white tracking-tight">HoloSpin POV {chipModel || "ESP32 Device"}</span>
+                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">{state.wifi.ip || (window.location.hostname === "192.168.4.1" ? "192.168.4.1" : "Disconnected")}</span>
                    </div>
                 </div>
                 <div className="flex items-center gap-2 bg-[#22c55e]/10 px-3 py-1 rounded-full border border-[#22c55e]/30">
-                   <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></div>
-                   <span className="text-[8px] font-black text-[#22c55e] uppercase">Active</span>
+                   <div className={`w-1.5 h-1.5 rounded-full bg-[#22c55e] ${isConnected ? 'animate-pulse' : ''}`}></div>
+                   <span className="text-[8px] font-black text-[#22c55e] uppercase">{isConnected ? 'Active' : 'Standby'}</span>
                 </div>
              </div>
 
@@ -5377,32 +5465,32 @@ void loop() {
                 <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800/50 flex flex-col gap-1 items-center text-center">
                    <Wifi className="w-5 h-5 text-sky-400 mb-1" />
                    <span className="text-[10px] text-slate-400 uppercase font-black">Signal</span>
-                   <span className="text-[11px] font-bold text-white">-45 dBm</span>
+                   <span className="text-[11px] font-bold text-white">{isConnected ? "-42 dBm" : "N/A"}</span>
                 </div>
                 <div className="bg-slate-900/40 p-4 rounded-2xl border border-slate-800/50 flex flex-col gap-1 items-center text-center">
                    <Zap className="w-5 h-5 text-amber-400 mb-1" />
                    <span className="text-[10px] text-slate-400 uppercase font-black">Power</span>
-                   <span className="text-[11px] font-bold text-white">USB-C / 5.1V</span>
+                   <span className="text-[11px] font-bold text-white">{isConnected ? "USB-C / 5.0V" : "0V"}</span>
                 </div>
              </div>
           </div>
           
           <div className="bg-slate-900/30 border border-slate-800/50 rounded-3xl p-6 backdrop-blur-sm">
-             <h4 className="text-[10px] text-slate-400 font-black tracking-widest uppercase mb-4 pl-1">VIRTUAL HARDWARE STATUS</h4>
+             <h4 className="text-[10px] text-slate-400 font-black tracking-widest uppercase mb-4 pl-1">SYSTEM DIAGNOSTICS</h4>
              <div className="space-y-4">
                 <div className="flex justify-between items-center py-1">
                    <div className="flex flex-col">
                       <span className="text-[11px] text-slate-200 font-bold uppercase tracking-tight">System Core</span>
-                      <span className="text-[8px] text-slate-500 uppercase">Dual-Core Xtensa® LX6</span>
+                      <span className="text-[8px] text-slate-500 uppercase">{chipModel?.includes("S3") ? "Dual-Core Xtensa® LX7" : chipModel?.includes("C3") ? "Single-Core RISC-V" : "Dual-Core Xtensa® LX6"}</span>
                    </div>
-                   <span className="text-[10px] text-blue-400 font-mono font-bold">READY</span>
+                   <span className={`text-[10px] font-mono font-bold ${isConnected ? 'text-blue-400' : 'text-slate-600'}`}>{isConnected ? 'ONLINE' : 'OFFLINE'}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
                    <div className="flex flex-col">
                       <span className="text-[11px] text-slate-200 font-bold uppercase tracking-tight">Flash Memory</span>
-                      <span className="text-[8px] text-slate-500 uppercase">4MB SPI Flash</span>
+                      <span className="text-[8px] text-slate-500 uppercase">{chipModel?.includes("S3") ? "8MB Octal SPI" : "4MB SPI Flash"}</span>
                    </div>
-                   <span className="text-[10px] text-emerald-400 font-mono font-bold">HEALTHY</span>
+                   <span className={`text-[10px] font-mono font-bold ${isConnected ? 'text-emerald-400' : 'text-slate-600'}`}>{isConnected ? 'HEALTHY' : 'UNKNOWN'}</span>
                 </div>
              </div>
           </div>
@@ -5428,7 +5516,7 @@ void loop() {
                   </div>
                </div>
              ))}
-             {/* Mock Content */}
+             {/* Active Session Content */}
              <div className="bg-[#0c0e15]/40 border border-slate-800/40 rounded-3xl p-4 flex flex-col items-center gap-3 opacity-50 relative overflow-hidden">
                 <div className="w-14 h-14 rounded-2xl bg-slate-900/80 flex items-center justify-center border border-slate-800">
                    <HardDrive className="w-7 h-7 text-slate-600" />

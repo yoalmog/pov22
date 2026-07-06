@@ -42,9 +42,55 @@ async function startServer() {
   app.get("/api/files", (req, res) => {
     try {
       const files = fs.readdirSync(uploadDir);
-      res.json(files.map(f => ({ name: f, url: `/uploads/${f}` })));
+      // Include any root Config.h or main.ino in the file list if they exist, or just uploadDir files
+      const resultList = files.map(f => ({
+        name: f,
+        size: `${(fs.statSync(path.join(uploadDir, f)).size / 1024).toFixed(1)} KB`,
+        type: f.toLowerCase().endsWith(".mp4") ? "video" : "image",
+        path: `/uploads/${f}`
+      }));
+      res.json(resultList);
     } catch (e) {
       res.status(500).json({ error: "Failed to list files" });
+    }
+  });
+
+  // Real file writer for Config.h, main.ino, and general assets
+  app.post("/api/write-file", (req, res) => {
+    try {
+      const { filename, content } = req.body;
+      if (!filename || content === undefined) {
+        return res.status(400).json({ error: "Missing filename or content parameter" });
+      }
+      
+      // Write directly to project root directory
+      const destPath = path.join(process.cwd(), filename);
+      fs.writeFileSync(destPath, content, "utf8");
+      console.log(`[DevServer] File ${filename} written successfully to project root.`);
+      
+      res.json({ status: "success", message: `File ${filename} saved successfully!` });
+    } catch (e: any) {
+      console.error("[DevServer] Write error:", e);
+      res.status(500).json({ error: `Failed to write file: ${e.message}` });
+    }
+  });
+
+  // Real file deletion API
+  app.post("/api/delete-file", (req, res) => {
+    try {
+      const { filename } = req.body;
+      if (!filename) {
+        return res.status(400).json({ error: "Missing filename parameter" });
+      }
+      
+      const destPath = path.join(uploadDir, filename);
+      if (fs.existsSync(destPath)) {
+        fs.unlinkSync(destPath);
+        return res.json({ status: "success", message: "File deleted successfully!" });
+      }
+      res.status(404).json({ error: "File not found" });
+    } catch (e: any) {
+      res.status(500).json({ error: `Failed to delete file: ${e.message}` });
     }
   });
 
@@ -52,62 +98,31 @@ async function startServer() {
   let mockRpm = 100;
 
   app.get("/status", (req, res) => {
-    res.json({ rpm: mockRpm, status: mockStatus });
+    res.status(503).json({ error: "Real hardware not detected in dev environment" });
   });
 
   app.get("/api/status", (req, res) => {
-    res.json({
-      state: mockStatus,
-      image: "current_animation.bmp",
-      column: 12,
-      totalColumns: 64,
-      speed: mockRpm,
-      measuredFps: 30,
-      brightness: 128,
-      loopMode: true,
-      orientation: "vertical",
-      direction: "left_to_right",
-      ledType: "WS2812",
-      numLeds: 64,
-      effectRunning: false,
-      effectType: 0,
-      wifiConnected: true,
-      wifiSSID: "HoloSpin_Network",
-      wifiIP: "192.168.1.50",
-      freeSpace: 2048000
-    });
+    res.status(503).json({ error: "Real hardware not detected in dev environment" });
   });
 
   app.post("/calibrate", (req, res) => {
-    mockStatus = "calibrating";
-    mockRpm = 240;
-    setTimeout(() => {
-      mockStatus = "ready";
-      mockRpm = 125;
-    }, 4000);
-    res.json({ status: "calibrating" });
+    res.status(503).json({ error: "No hardware connected" });
   });
 
   app.post("/control", (req, res) => {
-    res.json({ status: "success" });
+    res.status(503).json({ error: "No hardware connected" });
   });
 
   app.post("/config", (req, res) => {
-    res.json({ status: "success" });
+    res.status(503).json({ error: "No hardware connected" });
   });
 
   app.post("/upload", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
-    const data = req.body;
-    const len = data ? (Buffer.isBuffer(data) ? data.length : Object.keys(data).length) : 0;
-    console.log(`[Server] Received upload: ${len} units`);
-    res.json({ status: "success", received: len });
+    res.status(503).json({ error: "No hardware connected" });
   });
 
   app.get("/scan", (req, res) => {
-    res.json([
-      { ssid: "HoloSpin_WiFi_AP", rssi: -45, secure: false },
-      { ssid: "Home_WiFi_2.4G", rssi: -68, secure: true }
-    ]);
+    res.json([]);
   });
 
   app.get("/diagnostic", (req, res) => {

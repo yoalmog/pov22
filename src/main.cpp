@@ -128,6 +128,18 @@ void setupServerTransitions() {
         doc["temp"] = 38.5; // Placeholder for logic
         doc["wifi_mode"] = WiFi.getMode() == WIFI_AP ? "AP" : "STA";
         doc["sync"] = isCalibrated;
+        
+        // Auto-detect chip model
+        #if defined(CONFIG_IDF_TARGET_ESP32S3)
+            doc["model"] = "ESP32-S3";
+        #elif defined(CONFIG_IDF_TARGET_ESP32C3)
+            doc["model"] = "ESP32-C3";
+        #elif defined(CONFIG_IDF_TARGET_ESP32)
+            doc["model"] = "ESP32";
+        #else
+            doc["model"] = "Unknown ESP32";
+        #endif
+
         serializeJson(doc, *response);
         request->send(response);
     });
@@ -160,6 +172,75 @@ void setupServerTransitions() {
             }
             request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
+
+    // Real physical SD Card file list API
+    server.on("/api/files", HTTP_GET, [](AsyncWebServerRequest *request) {
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        DynamicJsonDocument doc(4096);
+        JsonArray array = doc.to<JsonArray>();
+        
+        File root = SD.open("/");
+        if (!root) {
+            JsonObject obj = array.createNestedObject();
+            obj["error"] = "Failed to open SD root directory";
+        } else {
+            File file = root.openNextFile();
+            while (file) {
+                if (!file.isDirectory()) {
+                    JsonObject obj = array.createNestedObject();
+                    obj["name"] = String(file.name());
+                    obj["size"] = String(file.size() / 1024) + " KB";
+                    obj["type"] = (String(file.name()).endsWith(".png") || String(file.name()).endsWith(".jpg") || String(file.name()).endsWith(".jpeg")) ? "image" : "video";
+                    obj["path"] = "/sd/" + String(file.name());
+                }
+                file = root.openNextFile();
+            }
+        }
+        serializeJson(doc, *response);
+        request->send(response);
+    });
+
+    // Real file writer for Config.h and main.ino or assets on the physical ESP32 SD Card
+    server.on("/api/write-file", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            StaticJsonDocument<1024> doc;
+            deserializeJson(doc, (const char*)data);
+            if (doc.containsKey("filename") && doc.containsKey("content")) {
+                String filename = doc["filename"];
+                String content = doc["content"];
+                
+                // Write directly to SD Card
+                File f = SD.open("/" + filename, FILE_WRITE);
+                if (f) {
+                    f.print(content);
+                    f.close();
+                    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"File saved to SD Card successfully!\"}");
+                } else {
+                    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to write file to SD Card\"}");
+                }
+            } else {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing filename or content parameter\"}");
+            }
+        }
+    );
+
+    // Real file deletion on the physical ESP32 SD Card
+    server.on("/api/delete-file", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            StaticJsonDocument<512> doc;
+            deserializeJson(doc, (const char*)data);
+            if (doc.containsKey("filename")) {
+                String filename = doc["filename"];
+                if (SD.remove("/" + filename)) {
+                    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"File deleted successfully!\"}");
+                } else {
+                    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to delete file from SD Card\"}");
+                }
+            } else {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing filename parameter\"}");
+            }
+        }
+    );
 }
 
 void setup() {
