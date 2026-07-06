@@ -94,10 +94,13 @@ public class EsptoolPlugin extends Plugin {
                     flags |= PendingIntent.FLAG_MUTABLE;
                 }
 
+                Intent intent = new Intent(ACTION_USB_PERMISSION);
+                intent.setPackage(context.getPackageName());
+
                 PendingIntent permissionIntent = PendingIntent.getBroadcast(
                     context, 
                     0, 
-                    new Intent(ACTION_USB_PERMISSION), 
+                    intent, 
                     flags
                 );
                 
