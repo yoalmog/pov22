@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, memo, useCallback } from "react";
 // Triggering a small change to ensure the deployment/build pipeline picks up the latest assets.
 import { motion, AnimatePresence } from "motion/react";
 import { BleClient } from '@capacitor-community/bluetooth-le';
+import { registerPlugin } from '@capacitor/core';
+const Esptool = registerPlugin<any>('Esptool');
 import { Network } from '@capacitor/network';
 import { Geolocation } from '@capacitor/geolocation';
 import { Filesystem } from '@capacitor/filesystem';
@@ -703,6 +705,13 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [showSplashLogo, setShowSplashLogo] = useState(false);
   const [splashProgress, setSplashProgress] = useState(0);
+
+  // Native ESPTool Flashing states
+  const [isFlashing, setIsFlashing] = useState(false);
+  const [flashProgress, setFlashProgress] = useState(0);
+  const [flashStage, setFlashStage] = useState<string>('idle');
+  const [flashMessage, setFlashMessage] = useState<string>('');
+  const [showPluginMissingModal, setShowPluginMissingModal] = useState(false);
 
   useEffect(() => {
     let logoTimer: any;
@@ -1470,6 +1479,53 @@ export default function App() {
   const handleCancelDiagnostics = () => {
     if (diagnosticAbortControllerRef.current) {
       diagnosticAbortControllerRef.current.abort("cancelled");
+    }
+  };
+
+  const handleFlashViaOtg = async () => {
+    const isCapacitor = !!(window as any).Capacitor;
+    
+    if (!isCapacitor) {
+      setShowPluginMissingModal(true);
+      return;
+    }
+
+    try {
+      setIsFlashing(true);
+      setFlashProgress(0);
+      setFlashStage('connecting');
+      setFlashMessage('Checking for ESPTool Native Android Plugin...');
+
+      const cap = (window as any).Capacitor;
+      if (!cap || !cap.Plugins || !cap.Plugins.Esptool) {
+        throw new Error("ESPTool Native Android Plugin is not registered. Please ensure it is compiled into the app.");
+      }
+
+      const EsptoolPlugin = cap.Plugins.Esptool;
+
+      const progressListener = await EsptoolPlugin.addListener(
+        'flashProgress',
+        (data: { stage: string; message: string; progress: number }) => {
+          setFlashStage(data.stage);
+          setFlashMessage(data.message);
+          setFlashProgress(data.progress);
+        }
+      );
+
+      const result = await EsptoolPlugin.flash();
+      progressListener.remove();
+
+      if (result && result.status === 'success') {
+        setFlashStage('completed');
+        setFlashProgress(100);
+        setFlashMessage('ESP32 firmware successfully flashed over USB OTG!');
+      } else {
+        throw new Error(result?.message || 'Flashing process failed.');
+      }
+    } catch (err: any) {
+      console.error("Native flash error:", err);
+      setFlashStage('error');
+      setFlashMessage(err.message || 'An error occurred during ESP32 flashing.');
     }
   };
 
@@ -3542,10 +3598,8 @@ void loop() {
                   Connect ESP32 via USB OTG. Uses native Android USB Host API to establish CH340/CP2102 serial link.
                 </p>
                 <button
-                  onClick={() => {
-                    setToastMessage("Native USB Flashing initializing... (Requires ESPTool Native Android Plugin to function completely)");
-                  }}
-                  className="mt-auto w-full py-2.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/50 text-amber-400 font-bold uppercase text-[9px] tracking-widest transition"
+                  onClick={handleFlashViaOtg}
+                  className="mt-auto w-full py-2.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/50 text-amber-400 font-bold uppercase text-[9px] tracking-widest transition cursor-pointer"
                 >
                   Flash via USB OTG
                 </button>
@@ -6021,6 +6075,138 @@ void loop() {
               className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold uppercase text-[10px]"
             >
               Close
+            </button>
+          </div>
+        </>
+      )}
+
+      {isFlashing && (
+        <>
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" onClick={() => {
+            if (flashStage === 'completed' || flashStage === 'error') {
+              setIsFlashing(false);
+            }
+          }}></div>
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-[#090a10] border border-slate-800/80 rounded-2xl p-6 z-[110] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <Cpu className="w-8 h-8 text-amber-500 animate-pulse" />
+              <div className="flex flex-col">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Native USB Flasher
+                </h3>
+                <span className="text-[9px] text-amber-400/80 font-mono font-bold uppercase tracking-wider">
+                  ESP32 ROM BOOTLOADER
+                </span>
+              </div>
+            </div>
+
+            <div className="py-2 flex flex-col gap-4">
+              <div className="flex justify-between items-end">
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-widest font-sans">
+                  {flashStage === 'connecting' && 'Establishing Connection...'}
+                  {flashStage === 'syncing' && 'Syncing Bootloader...'}
+                  {flashStage === 'connected' && 'Device Connected'}
+                  {flashStage === 'erasing' && 'Erasing Flash...'}
+                  {flashStage === 'writing' && 'Uploading Firmware...'}
+                  {flashStage === 'verifying' && 'Verifying Checksum...'}
+                  {flashStage === 'completed' && 'Flashing Successful!'}
+                  {flashStage === 'error' && 'Flashing Failed!'}
+                </span>
+                <span className="text-xs text-amber-400 font-mono font-bold">{flashProgress}%</span>
+              </div>
+
+              <div className="w-full h-2.5 bg-slate-800/80 rounded-full overflow-hidden p-[1px] border border-slate-700/30">
+                <div 
+                  className="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-300 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                  style={{ width: `${flashProgress}%` }}
+                ></div>
+              </div>
+
+              <div className="bg-[#050608] border border-slate-900 rounded-xl p-3 font-mono text-[9.5px] leading-relaxed text-slate-400 break-words min-h-[50px] flex items-center justify-center text-center">
+                <span className={flashStage === 'completed' ? 'text-emerald-400 font-bold' : flashStage === 'error' ? 'text-rose-400 font-semibold' : 'text-slate-300'}>
+                  {flashMessage}
+                </span>
+              </div>
+
+              {flashStage === 'completed' && (
+                <button
+                  onClick={() => setIsFlashing(false)}
+                  className="w-full py-3 mt-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold uppercase tracking-widest text-[10px] shadow-[0_0_15px_rgba(16,185,129,0.3)] transition"
+                >
+                  Done / סגור
+                </button>
+              )}
+
+              {flashStage === 'error' && (
+                <div className="flex gap-2.5 mt-2">
+                  <button
+                    onClick={() => setIsFlashing(false)}
+                    className="flex-1 py-3 rounded-xl border border-slate-800 text-slate-400 font-bold uppercase tracking-widest text-[9px] hover:bg-slate-900 transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={handleFlashViaOtg}
+                    className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold uppercase tracking-widest text-[9px] shadow-[0_0_15px_rgba(245,158,11,0.3)] transition"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {showPluginMissingModal && (
+        <>
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" onClick={() => setShowPluginMissingModal(false)}></div>
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-[#090a10] border border-slate-800/80 rounded-2xl p-6 z-[110] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <Smartphone className="w-8 h-8 text-amber-500" />
+              <div className="flex flex-col">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Native Plugin Required
+                </h3>
+                <span className="text-[9px] text-slate-400 font-mono uppercase tracking-widest font-bold">
+                  USB HOST SERIAL BRIDGING
+                </span>
+              </div>
+            </div>
+            
+            <div className="text-[11px] text-slate-300 space-y-3 font-sans leading-relaxed">
+              <p>
+                To flash your ESP32 board over <strong>USB OTG</strong>, this application requires a native Android bridge to control the phone's physical USB controller:
+              </p>
+              
+              <div className="bg-[#050608] border border-slate-900/60 p-3 rounded-xl space-y-2">
+                <div className="flex gap-2">
+                  <span className="w-4 h-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-full flex items-center justify-center font-mono font-bold text-[9px] shrink-0 mt-0.5">1</span>
+                  <p className="text-slate-300">Run this application as a <strong>native Android App</strong> instead of inside a web browser.</p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="w-4 h-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-full flex items-center justify-center font-mono font-bold text-[9px] shrink-0 mt-0.5">2</span>
+                  <p className="text-slate-300">Ensure the <strong>ESPTool Native Android Plugin</strong> is built and compiled into the application bundle.</p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="w-4 h-4 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-full flex items-center justify-center font-mono font-bold text-[9px] shrink-0 mt-0.5">3</span>
+                  <p className="text-slate-300">Connect your ESP32 using an <strong>OTG cable adapter</strong> and accept the Android USB permission prompt.</p>
+                </div>
+              </div>
+
+              <div className="bg-amber-500/5 border border-amber-500/20 text-amber-400 p-2.5 rounded-lg flex items-start gap-2.5 text-[10px]">
+                <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="leading-normal">
+                  <strong>Hint:</strong> If standard USB upload fails, hold the physical <strong>BOOT</strong> button on the ESP32 while plugging in the OTG cable.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowPluginMissingModal(false)}
+              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold uppercase text-[10px] tracking-widest transition"
+            >
+              Close Guide
             </button>
           </div>
         </>
