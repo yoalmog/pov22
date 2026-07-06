@@ -1,0 +1,106 @@
+402:      onClick={() => onChange(!value)}
+415:        onClick={() => onChange(Math.max(min, value - 1))}
+424:        onClick={() => onChange(Math.min(max, value + 1))}
+439:          onClick={() => onChange(o.value)}
+479:      onClick={onClick}
+1383:          onClick={handleBluetoothConnect}
+1409:            onClick={handleRetryConnection}
+1429:            onClick={() => setSubPage(null)}
+1457:          onClick={() => setIsSidebarOpen(true)}
+1525:                onClick={() => setShowPass(!showPass)}
+1560:                  onClick={() => setShowPass(!showPass)}
+1574:            onClick={() => {
+1604:                  onClick={() => updateState("led", "strips", val)}
+1696:            onClick={() => {
+1810:            onClick={() => {
+1860:              onClick={handleStartCalibration}
+1905:            onClick={() => {
+1990:            onClick={() => {
+2041:                onClick={() => setSubPage(null)}
+2361:               onClick={() => setShowBootloaderModal(true)}
+2377:                  onClick={() => downloadFile("ConfigBackup.txt", headerCode)}
+2383:                  onClick={() => copyToClipboard(headerCode)}
+2389:                  onClick={() => downloadFile("Config.h", headerCode)}
+2406:                  onClick={() => copyToClipboard(inoCode)}
+2412:                  onClick={() => downloadFile("main.ino", inoCode)}
+2431:              onClick={() => window.open(state.wifi.mode === "AP" ? "http://192.168.4.1/update" : "/update", '_blank')}
+2442:              onClick={handleDownloadLogs}
+2571:            onClick={() => {
+2601:                onClick={() => {
+2654:                              onClick={() => handleLoadPreset(slotId)}
+2663:                            onClick={() => handleSavePreset(slotId)}
+2671:                              onClick={() => handleDeletePreset(slotId)}
+2698:                  onClick={handleExportPresets}
+2717:            onClick={() => {
+2794:            onClick={() => {
+2854:            onClick={() => {
+2955:                            onClick={() => {
+2980:                              onClick={() => {
+3031:                            onClick={() => {
+3056:                              onClick={() => {
+3085:                        onClick={() => {
+3101:                onClick={() => {
+3126:                  onClick={() => setUploadDest("image")}
+3134:                  onClick={() => setUploadDest("video")}
+3197:              onClick={() => setBgImageId("galaxy0")}
+3208:              onClick={() => setBgImageId("galaxy1")}
+3219:              onClick={() => setBgImageId("galaxy2")}
+3230:              onClick={() => setBgImageId("galaxy3")}
+3241:              onClick={() => setBgImageId("butterfly")}
+3252:              onClick={() => setBgImageId("planet")}
+3268:              onClick={() => setBgImageId("video1")}
+3279:              onClick={() => setBgImageId("video2")}
+3319:                    onClick={() => setLogoUrl(planetImg)}
+3327:                    onClick={() => setLogoUrl("preset:smile")}
+3335:                    onClick={() => setLogoUrl("preset:ghost")}
+3343:                    onClick={() => setLogoUrl("preset:aperture")}
+3398:                    onClick={() => setLogoUrl(null)}
+3426:                      onClick={() => {
+3479:                    onClick={() => {
+3519:                     onClick={() => setState((prev: any) => ({...prev, wifi: {...prev.wifi, mode: "AP"}}))}
+3523:                     onClick={() => setState((prev: any) => ({...prev, wifi: {...prev.wifi, mode: "STA"}}))}
+3552:                    onClick={handleConnectToSTA}
+3578:                onClick={handleScan}
+3604:                  onClick={handleScan}
+3666:              onClick={() => setShowHowItWorks(!showHowItWorks)}
+3861:                    onClick={() => {
+3909:                      onClick={() => {
+3952:                      onClick={() => {
+4090:                        onClick={() => {
+4121:                        onClick={() => {
+4229:            onClick={() => {
+4325:              onClick={() => setSubPage("wifi")}
+4331:              onClick={() => setSubPage("led")}
+4337:              onClick={() => setSubPage("motor")}
+4343:              onClick={() => setSubPage("pov")}
+4349:              onClick={() => setSubPage("sync")}
+4363:              onClick={() => setSubPage("firmware")}
+4369:              onClick={() => setSubPage("power")}
+4375:              onClick={() => setSubPage("save_load")}
+4381:              onClick={handleRunDiagnostics}
+4387:              onClick={() => setSubPage("advanced")}
+4393:              onClick={() => setSubPage("background")}
+4399:              onClick={() => setSubPage("media")}
+4483:                    onClick={() => {
+4538:                  onClick={() => setMotorSpeed(opt.speed)}
+4722:          onClick={() => {
+4738:          onClick={() => {
+4754:          onClick={() => {
+4776:            onClick={() => setIsSidebarOpen(false)}
+4790:                onClick={() => setIsSidebarOpen(false)}
+4799:                onClick={() => {
+4812:                onClick={() => {
+4824:                onClick={() => {
+4836:                onClick={() => {
+4849:                onClick={() => {
+4870:            onClick={() => {
+4900:                    onClick={() => setShowCalibrateModal(false)}
+4906:                    onClick={handleStartCalibration}
+4974:                  onClick={() => {
+5009:                    onClick={() => {
+5018:                    onClick={handleStartCalibration}
+5032:          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" onClick={() => !isRunningDiagnostics && setShowDiagnosticsModal(false)}></div>
+5053:                    onClick={handleCancelDiagnostics}
+5071:                  onClick={() => setShowDiagnosticsModal(false)}
+5084:          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" onClick={() => setShowBootloaderModal(false)}></div>
+5103:              onClick={() => setShowBootloaderModal(false)}

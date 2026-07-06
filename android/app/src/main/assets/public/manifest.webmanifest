@@ -1,0 +1,1 @@
+{"name":"Holospin Dashboard","short_name":"Holospin","description":"Holospin Controller UI","start_url":"./","display":"standalone","background_color":"#050608","theme_color":"#050608","lang":"en","scope":"./","orientation":"portrait","icons":[{"src":"icon.svg","sizes":"192x192 512x512","type":"image/svg+xml","purpose":"any maskable"}]}

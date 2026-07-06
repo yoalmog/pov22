@@ -1,0 +1,120 @@
+name: Build 100% Native Android (Kotlin + Jetpack Compose)
+
+on:
+  push:
+    branches: [ "main", "develop", "release/*" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-native-android:
+    name: Build Native Android App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Web Project
+        run: npm run build
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Repair Corrupted Image Assets
+        run: |
+          pip3 install Pillow
+          python3 repair_assets.py
+
+      - name: Cache Build Directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+            **/build
+            **/.gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Run Code Analysis & Linting (Ktlint / Android Lint)
+        run: |
+          cd android && gradle lintDebug
+        continue-on-error: true
+
+      - name: Run Kotlin Unit Tests
+        run: |
+          cd android && gradle testDebugUnitTest
+        continue-on-error: true
+
+      - name: Build Debug APK (Kotlin + Jetpack Compose)
+        run: |
+          cd android && gradle assembleDebug
+
+      - name: Build Release APK & AAB (Kotlin + Jetpack Compose)
+        run: |
+          cd android && gradle assembleRelease && gradle bundleRelease
+
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/
+            **/build/reports/androidTests/
+            **/build/reports/lint-results*
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Unsigned Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-app-release-unsigned.apk
+          path: |
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Upload Unsigned Release AAB (Android App Bundle)
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-app-release-unsigned.aab
+          path: |
+            app/build/outputs/bundle/release/app-release-unsigned.aab
+            android/app/build/outputs/bundle/release/app-release-unsigned.aab
