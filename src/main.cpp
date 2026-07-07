@@ -200,29 +200,31 @@ void setupServerTransitions() {
         request->send(response);
     });
 
-    // Real file writer for Config.h and main.ino or assets on the physical ESP32 SD Card
-    server.on("/api/write-file", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            StaticJsonDocument<1024> doc;
-            deserializeJson(doc, (const char*)data);
-            if (doc.containsKey("filename") && doc.containsKey("content")) {
-                String filename = doc["filename"];
-                String content = doc["content"];
-                
-                // Write directly to SD Card
-                File f = SD.open("/" + filename, FILE_WRITE);
-                if (f) {
-                    f.print(content);
-                    f.close();
-                    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"File saved to SD Card successfully!\"}");
-                } else {
-                    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to write file to SD Card\"}");
-                }
-            } else {
-                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing filename or content parameter\"}");
-            }
+    // Robust file writer for large files (Config.h, etc)
+    server.on("/api/write-file", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("filename")) {
+            request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing filename query param\"}");
+            return;
         }
-    );
+    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        String filename = request->getParam("filename")->value();
+        if (!filename.startsWith("/")) filename = "/" + filename;
+        
+        static File f;
+        if (index == 0) {
+            f = SD.open(filename, FILE_WRITE);
+        }
+        
+        if (f) {
+            f.write(data, len);
+            if (index + len == total) {
+                f.close();
+                request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"File saved\"}");
+            }
+        } else {
+            if (index == 0) request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to open file\"}");
+        }
+    });
 
     // Real file deletion on the physical ESP32 SD Card
     server.on("/api/delete-file", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
@@ -238,6 +240,15 @@ void setupServerTransitions() {
                 }
             } else {
                 request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing filename parameter\"}");
+            }
+        }
+    );
+
+    // Real binary frame uploader for high-speed graphics sync
+    server.on("/api/upload-frames", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            if (index + len == total) {
+                request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Frame buffer received\"}");
             }
         }
     );

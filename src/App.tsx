@@ -995,11 +995,8 @@ export default function App() {
       
       const effectName = EFFECTS.find(e => e.id === effectId)?.label || effectId;
       
-      // Send remote control command to HC-05 Bluetooth transceiver
-      const bluetoothCommand = `EFFECT:${effectId}\n`;
-      console.log(`[HC-05 Transmission] Sending serial sequence: "${bluetoothCommand.trim()}"`);
-      
-      setToastMessage(`הגרפיקה ${effectName} הופעלה בשלט רחוק! פקודת בלוטות' "${bluetoothCommand.trim()}" נשלחה בהצלחה למכשיר ההולוגרמה דרך מודול HC-05 (Baudrate: 9600).`);
+      // Broadcast update to device if connected
+      setToastMessage(`הגרפיקה ${effectName} הופעלה!`);
     }
   };
 
@@ -1844,12 +1841,12 @@ export default function App() {
       const isLocalHost = window.location.hostname === "192.168.4.1";
       const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
       
-      const res = await fetch(`${baseUrl}/api/write-file`, {
+      const res = await fetch(`${baseUrl}/api/write-file?filename=${encodeURIComponent(filename)}`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "text/plain"
         },
-        body: JSON.stringify({ filename, content })
+        body: content
       });
       
       if (!res.ok) {
@@ -2067,7 +2064,7 @@ export default function App() {
       setToastMessage("Uploading frames... / מעלה פריימים ");
       
       const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/upload" : "/upload";
+      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/api/upload-frames" : "/api/upload-frames";
       
       const response = await fetch(targetUrl, {
         method: "POST",
@@ -2248,7 +2245,7 @@ export default function App() {
           <div className={`flex items-center gap-1 mt-1 px-1 py-0.5 rounded ${isBluetoothConnected ? 'bg-blue-500/10 border border-blue-500/30' : ''}`}>
             <div className={`w-[4px] h-[4px] rounded-full ${isBluetoothConnected ? 'bg-[#3b82f6] shadow-[0_0_5px_#3b82f6]' : isBluetoothConnecting ? 'bg-[#60a5fa] animate-ping' : 'bg-slate-600'}`}></div>
             <span className={`text-[6px] font-bold tracking-widest hidden sm:block whitespace-nowrap ${isBluetoothConnected ? 'text-[#3b82f6]' : 'text-slate-500'}`}>
-              {isBluetoothConnected ? 'BT CONN' : isBluetoothConnecting ? 'PAIRING' : 'PAIR BT'}
+              {isBluetoothConnected ? 'BLE CONN' : isBluetoothConnecting ? 'PAIRING' : 'PAIR BLE'}
             </span>
           </div>
         </button>
@@ -3038,11 +3035,6 @@ export default function App() {
 #define SD_MISO_PIN 19        // פין MISO של כרטיס ה-SD
 #define SD_SCK_PIN 18         // פין SCK של כרטיס ה-SD
 
-// HC-05 BLUETOOTH CLASSIC MODULE CONFIG (מודול בלוטות' חיצוני)
-#define HC05_BAUD 9600        // קצב ברירת מחדל של HC-05
-#define HC05_RX_PIN 16        // פין RX2 מחובר ל-TX של מודול HC-05
-#define HC05_TX_PIN 17        // פין TX2 מחובר ל-RX של מודול HC-05
-
 // WIFI - ROUTER / ראוטר (STA MODE)
 #define ROUTER_SSID "${state.wifi.routerSsid || "Dael CR"}"
 #define ROUTER_PASS "${state.wifi.routerPass || "14cusco05"}"
@@ -3069,7 +3061,6 @@ const char* PLAYBACK_FILES[PLAYBACK_FILE_COUNT] = {
   - זרוע 1 מחוברת לפין 25, זרוע 2 מחוברת לפין 26
   - חיישן הול לפין 27 כאינטראפט
   - מנוע מחובר לפין 14 (PWM בבקרת מהירות)
-  - בלוטות' חיצוני HC-05 Classic מחובר ל-Serial2 (RX=16, TX=17) במהירות 9600bps
   - BLE GATT Server עבור חיבור אפליקציות ניידות
   ===================================================================
 */
@@ -3523,11 +3514,6 @@ void setup() {
     strip2.Show();
     Serial.println("[SETUP] LEDs initialized");
 
-    // Init Serial2 for HC-05 Classic Bluetooth Module
-    Serial2.begin(HC05_BAUD, SERIAL_8N1, HC05_RX_PIN, HC05_TX_PIN);
-    bluetoothConnected = true;
-    Serial.println("[SETUP] HC-05 Classic Bluetooth initialized");
-
     // Init WiFi
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(AP_SSID, AP_PASS, 1, false, 4);
@@ -3580,12 +3566,6 @@ void loop() {
     if (bleConnected && (millis() - lastBleStatusTime > 1000)) {
         sendBleStatus();
         lastBleStatusTime = millis();
-    }
-    
-    // Handle HC-05 serial commands
-    if (Serial2.available() > 0) {
-        String incoming = Serial2.readStringUntil('\\n');
-        processIncomingCommand(incoming);
     }
     
     // POV rendering

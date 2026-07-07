@@ -56,16 +56,18 @@ async function startServer() {
   });
 
   // Real file writer for Config.h, main.ino, and general assets
-  app.post("/api/write-file", (req, res) => {
+  app.post("/api/write-file", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
     try {
-      const { filename, content } = req.body;
-      if (!filename || content === undefined) {
-        return res.status(400).json({ error: "Missing filename or content parameter" });
+      const filename = req.query.filename as string;
+      const content = req.body;
+      
+      if (!filename || !content) {
+        return res.status(400).json({ error: "Missing filename query param or body content" });
       }
       
       // Write directly to project root directory
       const destPath = path.join(process.cwd(), filename);
-      fs.writeFileSync(destPath, content, "utf8");
+      fs.writeFileSync(destPath, content);
       console.log(`[DevServer] File ${filename} written successfully to project root.`);
       
       res.json({ status: "success", message: `File ${filename} saved successfully!` });
@@ -117,8 +119,12 @@ async function startServer() {
     res.status(503).json({ error: "No hardware connected" });
   });
 
-  app.post("/upload", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
-    res.status(503).json({ error: "No hardware connected" });
+  app.post("/api/upload-frames", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
+    if (!req.body || req.body.length === 0) {
+      return res.status(400).json({ error: "No binary data received" });
+    }
+    console.log(`[DevServer] Received frame buffer: ${req.body.length} bytes`);
+    res.json({ status: "success", received: req.body.length });
   });
 
   app.get("/scan", (req, res) => {
