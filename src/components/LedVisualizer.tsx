@@ -1,88 +1,140 @@
 import React from "react";
 
 interface Props {
+  arms: number;
+  stripsPerArm: number;
   strips: number;
   pins?: string;
+  activeEffect?: string;
+  colorMode?: "solid" | "random";
+  baseColor?: string;
+  brightness?: number;
 }
 
-export const LedVisualizer: React.FC<Props> = ({ strips, pins = "" }) => {
+export const LedVisualizer: React.FC<Props> = ({ 
+  arms, 
+  stripsPerArm, 
+  strips, 
+  pins = "",
+  activeEffect = "rainbow",
+  colorMode = "solid",
+  baseColor = "#00b4d8",
+  brightness = 150
+}) => {
   const pinArray = pins ? pins.split(",").map(p => p.trim()) : [];
+  const [time, setTime] = React.useState(0);
 
-  const getStripInfo = (index: number) => {
-    // index is 0..strips-1
-    // The user wants Right: 1, 3, 5; Left: 2, 4, 6
-    // Which means:
-    // Right: 0, 2, 4 -> mapped to strips 1, 3, 5 (1-based)
-    // Left: 1, 3, 5 -> mapped to strips 2, 4, 6 (1-based)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setTime(t => t + 1);
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getLedColor = (stripIndex: number, ledIndex: number) => {
+    // Basic brightness multiplier
+    const bMult = brightness / 255;
     
-    // User order: Strip 1 (Right), Strip 2 (Left), Strip 3 (Right), Strip 4 (Left), Strip 5 (Right), Strip 6 (Left)
-    // If strips = 3:
-    // Right: 1, 3
-    // Left: 2
+    // Simple simulation logic for effects
+    if (activeEffect === "rainbow") {
+      const hue = (time * 5 + stripIndex * 20 + ledIndex * 5) % 360;
+      return `hsla(${hue}, 80%, 50%, ${bMult})`;
+    }
     
-    const isRight = index % 2 === 0;
-    const pos = Math.floor(index / 2); // 0, 1, 2 for top, mid, bot
+    if (activeEffect === "fire") {
+      const wave = Math.sin(time * 0.2 + ledIndex * 0.3) * 0.5 + 0.5;
+      const g = Math.floor(wave * 100);
+      return `rgba(255, ${g}, 0, ${bMult})`;
+    }
     
-    return {
-      side: isRight ? "right" : "left",
-      pos,
-      stripNumber: index + 1,
-      pin: pinArray[index] || "-"
-    };
+    if (activeEffect === "matrix") {
+      const drop = (time + stripIndex * 10) % 50;
+      const dist = Math.abs(ledIndex - drop);
+      const alpha = dist < 5 ? (1 - dist/5) * bMult : 0;
+      return `rgba(0, 255, 70, ${alpha})`;
+    }
+
+    if (activeEffect === "clock") {
+       const isTick = (ledIndex % 10 === 0);
+       return isTick ? `rgba(255, 255, 255, ${bMult})` : `rgba(30, 41, 59, 0.2)`;
+    }
+    
+    if (colorMode === "solid") {
+      const flicker = Math.sin(time * 0.1 + stripIndex) * 0.1 + 0.9;
+      return `${baseColor}${Math.floor(bMult * flicker * 255).toString(16).padStart(2, '0')}`;
+    }
+    
+    return `rgba(0, 180, 216, ${bMult})`;
   };
 
-  return (
-    <div className="w-full h-48 bg-slate-950/50 rounded-2xl border border-slate-800 relative flex items-center justify-center p-4">
-      <svg viewBox="0 0 400 150" className="w-full h-full">
-        {/* Central Base */}
-        <circle cx="200" cy="75" r="25" fill="black" />
+  const renderArm = (armIndex: number) => {
+    const angle = (armIndex * 360) / arms;
+    const armColor = armIndex % 2 === 0 ? "#06b6d4" : "#d97706";
+    
+    return (
+      <g key={armIndex} transform={`rotate(${angle}, 200, 75)`}>
+        {/* Arm base */}
+        <rect x="225" y="70" width="150" height="10" fill={armColor} rx="2" opacity="0.3" />
         
-        {/* Horizontal Arms */}
-        <rect x="225" y="65" width="150" height="20" fill="#d97706" rx="4" />
-        <rect x="25" y="65" width="150" height="20" fill="#06b6d4" rx="4" />
-        
-        {/* Labels */}
-        <text x="300" y="50" fill="white" className="text-xl font-bold" textAnchor="middle">ימין</text>
-        <text x="100" y="50" fill="white" className="text-xl font-bold" textAnchor="middle">שמאל</text>
-        
-        {/* Strips */}
-        {Array.from({ length: Math.ceil(Math.min(strips, 6) / 2) * 2 }).map((_, i) => {
-          if (i >= strips) return null;
-          const info = getStripInfo(i);
-          const isRight = info.side === "right";
+        {/* Strips on this arm */}
+        {Array.from({ length: stripsPerArm }).map((_, sIdx) => {
+          const globalStripIndex = armIndex * stripsPerArm + sIdx;
+          if (globalStripIndex >= strips) return null;
           
-          // Stacking positions
-          // Right strips: 1, 3, 5 -> pos 0, 1, 2
-          // Left strips: 2, 4, 6 -> pos 0, 1, 2
-          // Each arm is horizontal rect from y=65 to y=85 (height 20).
-          // Stacking 3 strips vertically inside height 20.
-          // Let's place them at y=66, 71.5, 77.
-          
-          const yPos = 66 + (info.pos * 5); 
+          const yOffset = (sIdx - (stripsPerArm - 1) / 2) * 8;
+          const yPos = 73 + yOffset;
           
           return (
-            <g key={i}>
-              <rect 
-                x={isRight ? 225 + 5 : 25 + 5}
-                y={yPos}
-                width="140"
-                height="4"
-                fill="white"
-                rx="1"
-              />
-              <text
-                x={isRight ? 225 + 75 : 25 + 75}
-                y={yPos + 3}
-                fill="black"
-                className="text-[4px] font-bold"
+            <g key={sIdx}>
+              {/* Individual LEDs Simulation */}
+              {Array.from({ length: 15 }).map((_, lIdx) => {
+                const color = getLedColor(globalStripIndex, lIdx);
+                return (
+                  <rect 
+                    key={lIdx}
+                    x={235 + lIdx * 8}
+                    y={yPos}
+                    width="6"
+                    height="4"
+                    fill={color}
+                    rx="1"
+                    className="transition-colors duration-100"
+                    style={{ filter: "blur(0.5px)" }}
+                  />
+                );
+              })}
+              
+              <text 
+                x="300"
+                y={yPos - 4}
+                fill="#94a3b8"
+                className="text-[3px] font-bold opacity-60"
                 textAnchor="middle"
-                dominantBaseline="middle"
               >
-                Strip {info.stripNumber}
+                S{globalStripIndex + 1} (Pin {pinArray[globalStripIndex] || "-"})
               </text>
             </g>
           );
         })}
+      </g>
+    );
+  };
+
+  return (
+    <div className="w-full h-56 bg-slate-950/50 rounded-2xl border border-slate-800 relative flex items-center justify-center p-4">
+      <svg viewBox="0 0 400 150" className="w-full h-full overflow-visible">
+        {/* Central Hub */}
+        <circle cx="200" cy="75" r="35" fill="#1e293b" />
+        <circle cx="200" cy="75" r="30" fill="black" />
+        <circle cx="200" cy="75" r="10" fill="#334155" />
+        
+        {/* Mechanical Arms */}
+        {Array.from({ length: arms }).map((_, i) => renderArm(i))}
+        
+        {/* Info Overlay */}
+        <text x="20" y="20" fill="#94a3b8" className="text-[8px] font-mono uppercase tracking-widest">
+          {arms} ARMS / {stripsPerArm} STRIPES PER ARM
+        </text>
       </svg>
     </div>
   );

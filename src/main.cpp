@@ -139,6 +139,15 @@ void setupServerTransitions() {
         #else
             doc["model"] = "Unknown ESP32";
         #endif
+        
+        // Real Storage Telemetry
+        JsonObject storage = doc.createNestedObject("storage");
+        bool mounted = SD.cardType() != CARD_NONE;
+        storage["mounted"] = mounted;
+        if (mounted) {
+            storage["total"] = String(SD.cardSize() / (1024.0 * 1024.0 * 1024.0), 1) + " GB";
+            storage["used"] = String(SD.usedBytes() / (1024.0 * 1024.0 * 1024.0), 1) + " GB";
+        }
 
         serializeJson(doc, *response);
         request->send(response);
