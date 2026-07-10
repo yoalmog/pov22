@@ -141,11 +141,12 @@ public class EsptoolPlugin extends Plugin {
                     }
                 };
                 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    context.registerReceiver(usbReceiver, new IntentFilter(ACTION_USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
-                } else {
-                    context.registerReceiver(usbReceiver, new IntentFilter(ACTION_USB_PERMISSION));
-                }
+                androidx.core.content.ContextCompat.registerReceiver(
+                    context,
+                    usbReceiver,
+                    new IntentFilter(ACTION_USB_PERMISSION),
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+                );
                 
                 usbManager.requestPermission(finalDevice, permissionIntent);
             } else {
