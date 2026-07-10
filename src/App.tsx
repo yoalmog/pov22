@@ -2475,20 +2475,6 @@ export default function App() {
           >
             <ChevronLeft className="w-6 h-6 min-[360px]:w-8 min-[360px]:h-8" />
           </button>
-          <div className="flex flex-col items-center">
-            <div className="flex items-center gap-1.5 min-[380px]:gap-2.5">
-              <PsychedelicLogo size="small" />
-              <div className="text-sm min-[380px]:text-lg min-[410px]:text-xl sm:text-[23px] font-black tracking-[0.06em] min-[380px]:tracking-[0.12em] flex leading-none text-white drop-shadow-[0_0_12px_rgba(168,85,247,0.45)]">
-                HOLOSPIN
-              </div>
-              <div
-                className={`w-1 h-1 min-[380px]:w-1.5 min-[380px]:h-1.5 rounded-full ${isConnected ? "bg-[#22c55e] shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"} transition-colors my-auto`}
-              ></div>
-            </div>
-            <div className="text-[6px] min-[380px]:text-[7px] min-[410px]:text-[8px] text-slate-400 font-bold tracking-[0.1em] min-[380px]:tracking-[0.15em] mt-1 sm:mt-1.5">
-              POV HOLOGRAPHIC SYSTEM
-            </div>
-          </div>
           {statusIndicator}
         </header>
       );
@@ -2502,20 +2488,6 @@ export default function App() {
         >
           <Menu className="w-5.5 h-5.5 min-[360px]:w-7 min-[360px]:h-7" />
         </button>
-        <div className="flex flex-col items-center">
-          <div className="flex items-center gap-1.5 min-[380px]:gap-2.5">
-            <PsychedelicLogo size="small" />
-            <div className="text-sm min-[380px]:text-lg min-[410px]:text-xl sm:text-[23px] font-black tracking-[0.06em] min-[380px]:tracking-[0.12em] flex leading-none text-white drop-shadow-[0_0_12px_rgba(168,85,247,0.45)]">
-              HOLOSPIN
-            </div>
-            <div
-              className={`w-1 h-1 min-[380px]:w-1.5 min-[380px]:h-1.5 rounded-full ${isConnected ? "bg-[#22c55e] shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"} transition-colors my-auto`}
-            ></div>
-          </div>
-          <div className="text-[6px] min-[380px]:text-[7px] min-[410px]:text-[8px] text-slate-400 font-bold tracking-[0.1em] min-[380px]:tracking-[0.15em] mt-1 sm:mt-1.5">
-            POV HOLOGRAPHIC SYSTEM
-          </div>
-        </div>
         {statusIndicator}
       </header>
     );

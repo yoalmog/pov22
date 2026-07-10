@@ -258,7 +258,7 @@ describe("Comprehensive Application UI & API Integrity Auditing", () => {
 
     // 1. Audit Tab: Controller
     console.log("▶ [Test] Auditing CONTROLLER Tab...");
-    expect(container.innerHTML).toContain("HOLOSPIN");
+    expect(container.innerHTML).toContain("CONTROLLER");
 
     // 2. Audit Tab: Effects
     console.log("▶ [Test] Navigating to EFFECTS Tab...");
