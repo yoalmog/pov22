@@ -152,9 +152,13 @@ export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
       // Apply global rainbow hue shift if in rainbow mode
       if (rainbowMode || effect === 'rainbow') {
         const globalHue = (t * 0.05) % 360;
-        c.canvas.style.filter = `hue-rotate(${globalHue}deg) contrast(1.2) brightness(1.1)`;
+        if (c?.canvas?.style) {
+          c.canvas.style.filter = `hue-rotate(${globalHue}deg) contrast(1.2) brightness(1.1)`;
+        }
       } else {
-        c.canvas.style.filter = '';
+        if (c?.canvas?.style) {
+          c.canvas.style.filter = '';
+        }
       }
 
       c.save();

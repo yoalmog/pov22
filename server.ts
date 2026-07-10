@@ -97,26 +97,47 @@ async function startServer() {
   });
 
   let mockStatus = "ready";
-  let mockRpm = 100;
+  let mockRpm = 0;
 
   app.get("/status", (req, res) => {
-    res.status(503).json({ error: "Real hardware not detected in dev environment" });
+    // Simulated hardware status
+    res.json({
+      status: mockStatus,
+      rpm: mockRpm || (Math.random() * 50 + 2400),
+      model: "ESP32-D0WDQ6 (Revision 1)",
+      temp: 42.5 + (Math.random() * 2),
+      current: 1.2 + (Math.random() * 0.5),
+      voltage: 12.1,
+      rssi: -45 - Math.floor(Math.random() * 10),
+      uptime: process.uptime(),
+      storage: {
+        mounted: true,
+        total: "16 GB",
+        used: "1.2 GB"
+      }
+    });
   });
 
   app.get("/api/status", (req, res) => {
-    res.status(503).json({ error: "Real hardware not detected in dev environment" });
+    res.redirect("/status");
   });
 
   app.post("/calibrate", (req, res) => {
-    res.status(503).json({ error: "No hardware connected" });
+    mockStatus = "calibrating";
+    setTimeout(() => { mockStatus = "ready"; }, 5000);
+    res.json({ status: "calibrating", message: "Calibration started" });
   });
 
   app.post("/control", (req, res) => {
-    res.status(503).json({ error: "No hardware connected" });
+    const { motorSpeed } = req.body;
+    if (motorSpeed !== undefined) {
+       mockRpm = motorSpeed * 30; // Scale motor speed to RPM
+    }
+    res.json({ status: "success" });
   });
 
   app.post("/config", (req, res) => {
-    res.status(503).json({ error: "No hardware connected" });
+    res.json({ status: "success", message: "Configuration applied" });
   });
 
   app.post("/api/upload-frames", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {

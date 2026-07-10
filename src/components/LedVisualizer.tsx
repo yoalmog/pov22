@@ -9,6 +9,7 @@ interface Props {
   colorMode?: "solid" | "random";
   baseColor?: string;
   brightness?: number;
+  aiEffectJs?: string | null;
 }
 
 export const LedVisualizer: React.FC<Props> = ({ 
@@ -19,10 +20,27 @@ export const LedVisualizer: React.FC<Props> = ({
   activeEffect = "rainbow",
   colorMode = "solid",
   baseColor = "#00b4d8",
-  brightness = 150
+  brightness = 150,
+  aiEffectJs = null
 }) => {
   const pinArray = pins ? pins.split(",").map(p => p.trim()) : [];
   const [time, setTime] = React.useState(0);
+
+  const aiFunctionRef = React.useRef<Function | null>(null);
+
+  React.useEffect(() => {
+    if (aiEffectJs) {
+      try {
+        // eslint-disable-next-line no-new-func
+        aiFunctionRef.current = new Function('stripIndex', 'ledIndex', 'time', 'brightness', 'arms', aiEffectJs);
+      } catch (e) {
+        console.error("Failed to compile AI effect JS", e);
+        aiFunctionRef.current = null;
+      }
+    } else {
+      aiFunctionRef.current = null;
+    }
+  }, [aiEffectJs]);
 
   React.useEffect(() => {
     const interval = setInterval(() => {
@@ -34,6 +52,14 @@ export const LedVisualizer: React.FC<Props> = ({
   const getLedColor = (stripIndex: number, ledIndex: number) => {
     // Basic brightness multiplier
     const bMult = brightness / 255;
+    
+    if (activeEffect === "ai_custom" && aiFunctionRef.current) {
+      try {
+        return aiFunctionRef.current(stripIndex, ledIndex, time, bMult, arms);
+      } catch (e) {
+         // fallback on error
+      }
+    }
     
     // Simple simulation logic for effects
     if (activeEffect === "rainbow") {
