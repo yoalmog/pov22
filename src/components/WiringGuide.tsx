@@ -5,14 +5,16 @@ import { AlertTriangle, XCircle, CheckCircle2 } from "lucide-react";
 interface Props {
   pins: string;
   strips: number;
+  motorPin?: string | number;
+  sensorPin?: string | number;
+  chipModel?: string | null;
 }
 
 // Known restricted/special ESP32 pins
 const INPUT_ONLY_PINS = [34, 35, 36, 39];
 const FLASH_PINS = [6, 7, 8, 9, 10, 11];
-const RESERVED_STATIC = [4, 17, 18, 19, 23, 5];
 
-export const WiringGuide: React.FC<Props> = ({ pins, strips }) => {
+export const WiringGuide: React.FC<Props> = ({ pins, strips, motorPin, sensorPin, chipModel }) => {
   const pinArray = pins.split(",").map(p => p.trim()).filter(p => p !== "");
   
   const dynamicConnections = pinArray.map((pin, i) => ({
@@ -22,12 +24,18 @@ export const WiringGuide: React.FC<Props> = ({ pins, strips }) => {
   }));
 
   const staticConnections = [
-    { component: "Hall Sensor", pin: "GPIO 4" },
-    { component: "Motor Control", pin: "GPIO 17" },
+    { component: "Hall Sensor", pin: `GPIO ${sensorPin ?? 27}` },
+    { component: "Motor Control", pin: `GPIO ${motorPin ?? 12}` },
     { component: "SD Card MOSI", pin: "GPIO 23" },
     { component: "SD Card MISO", pin: "GPIO 19" },
     { component: "SD Card SCK", pin: "GPIO 18" },
     { component: "SD Card CS", pin: "GPIO 5" },
+  ];
+
+  const coreSystemPins = [
+    parseInt(String(sensorPin ?? 27), 10),
+    parseInt(String(motorPin ?? 12), 10),
+    23, 19, 18, 5
   ];
 
   // Validation Logic
@@ -58,7 +66,7 @@ export const WiringGuide: React.FC<Props> = ({ pins, strips }) => {
     if (FLASH_PINS.includes(conn.pinNum)) {
       errors.push(`Invalid wiring: GPIO ${conn.pinNum} is reserved for internal flash and cannot be used.`);
     }
-    if (RESERVED_STATIC.includes(conn.pinNum)) {
+    if (coreSystemPins.includes(conn.pinNum)) {
       errors.push(`Pin conflict: GPIO ${conn.pinNum} is already reserved for core system components (Sensor/Motor/SD).`);
     }
   });
@@ -67,7 +75,10 @@ export const WiringGuide: React.FC<Props> = ({ pins, strips }) => {
 
   return (
     <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl w-full max-w-lg mx-auto">
-      <h3 className="text-lg font-bold text-white mb-4">Wiring Diagram (ESP32)</h3>
+      <h3 className="text-lg font-bold text-white mb-1">Wiring Diagram ({chipModel || "ESP32"})</h3>
+      {chipModel && (
+        <p className="text-xs text-amber-400 font-mono mb-4">Optimized hardware defaults active</p>
+      )}
       
       {errors.length > 0 && (
         <div className="mb-4 bg-red-950/40 border border-red-900 rounded-xl p-4">
@@ -101,7 +112,12 @@ export const WiringGuide: React.FC<Props> = ({ pins, strips }) => {
       )}
 
       <div className="mb-6">
-        <Esp32Board activePins={allConnections.map(c => c.pin.replace("GPIO ", ""))} />
+        <Esp32Board 
+          activePins={allConnections.map(c => c.pin.replace("GPIO ", ""))} 
+          ledPins={pins}
+          motorPin={motorPin}
+          sensorPin={sensorPin}
+        />
       </div>
 
       <div className="space-y-4">

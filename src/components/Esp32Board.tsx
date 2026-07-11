@@ -10,9 +10,12 @@ interface PinDef {
 
 interface Props {
   activePins: string[];
+  ledPins?: string;
+  motorPin?: string | number;
+  sensorPin?: string | number;
 }
 
-export const Esp32Board: React.FC<Props> = ({ activePins }) => {
+export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", motorPin = 12, sensorPin = 27 }) => {
   const [hoveredPin, setHoveredPin] = useState<string | null>(null);
 
   const leftPins: PinDef[] = [
@@ -403,15 +406,15 @@ export const Esp32Board: React.FC<Props> = ({ activePins }) => {
         <h5 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">מידע מפורט על הרכיבים המחוברים:</h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-400">
           <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900">
-            <span className="text-purple-400 font-bold font-mono">GPIO 25, 26</span>
+            <span className="text-purple-400 font-bold font-mono">GPIO {ledPins}</span>
             <p className="mt-1 text-slate-300">יציאות מידע עבור פסי הלדים. דואגות לשלוח פולסים מהירים עם אותות הצבע ללדים.</p>
           </div>
           <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900">
-            <span className="text-amber-500 font-bold font-mono">GPIO 4</span>
+            <span className="text-amber-500 font-bold font-mono">GPIO {sensorPin}</span>
             <p className="mt-1 text-slate-300">חיישן אפקט הול (Hall Sensor). מזהה מעבר של מגנט קבוע לחישוב מהירות וזווית המאוורר.</p>
           </div>
           <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900">
-            <span className="text-indigo-400 font-bold font-mono">GPIO 17</span>
+            <span className="text-indigo-400 font-bold font-mono">GPIO {motorPin}</span>
             <p className="mt-1 text-slate-300">בקרת מנוע (PWM). קובע את מהירות הסיבוב של מאוורר ההולוגרמה.</p>
           </div>
           <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900">

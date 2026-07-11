@@ -1026,6 +1026,9 @@ export default function App() {
   // Connection and Sensor State
   const [showPermissions, setShowPermissions] = useState(false);
   const [activeBleId, setActiveBleId] = useState<string | null>(null);
+  const [selectedSimModel, setSelectedSimModel] = useState<string>(() => safeGetLocal("holospin_sim_model") || "S3");
+  const [handshakeLogs, setHandshakeLogs] = useState<string[]>([]);
+  const [isHandshaking, setIsHandshaking] = useState<boolean>(false);
   const [presets, setPresets] = useState<Record<string, any>>(() => {
     try {
       const saved = safeGetLocal("holospin_presets");
@@ -1034,6 +1037,7 @@ export default function App() {
       return { "1": null, "2": null, "3": null, "4": null };
     }
   });
+  const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
 
   const [gestureMode, setGestureMode] = useState(false);
   const [commandQueue, setCommandQueue] = useState<any[]>([]);
@@ -1446,6 +1450,132 @@ export default function App() {
   const [calibrationStage, setCalibrationStage] = useState<"idle" | "requesting" | "calibrating" | "success" | "error">("idle");
   const [deviceStatus, setDeviceStatus] = useState<string>("ready");
   const [chipModel, setChipModel] = useState<string | null>(null);
+
+  const applyOptimizedPinDefaults = (model: string) => {
+    let ledPins = "25, 26";
+    let motorPin = 12;
+    let sensorPin = 27;
+    let displayName = "ESP32 (Classic)";
+
+    const upperModel = model.toUpperCase();
+    if (upperModel.includes("S3") || upperModel === "S3") {
+      ledPins = "15, 16";
+      motorPin = 17;
+      sensorPin = 18;
+      displayName = "ESP32-S3";
+    } else if (upperModel.includes("C3") || upperModel === "C3") {
+      ledPins = "4, 5";
+      motorPin = 6;
+      sensorPin = 7;
+      displayName = "ESP32-C3";
+    }
+
+    setState((p: any) => {
+      const updated = {
+        ...p,
+        led: {
+          ...p.led,
+          pins: ledPins
+        },
+        motor: {
+          ...p.motor,
+          pin: motorPin
+        },
+        sync: {
+          ...p.sync,
+          sensorPin: sensorPin
+        }
+      };
+      safeSaveLocal("holospin_state", JSON.stringify(updated));
+      return updated;
+    });
+
+    setToastMessage(`חיבור בוצע בהצלחה! זוהתה חומרת ${displayName}. הוגדרו פינים אופטימליים. / Handshake successful! Detected ${displayName}. Optimized pin defaults applied.`);
+  };
+
+  const runHandshakeFlow = async (targetModel: string) => {
+    setIsHandshaking(true);
+    setHandshakeLogs([]);
+    
+    const logs = [
+      `[00:00.100] [SYSTEM] Initiating handshake sequence...`,
+      `[00:00.350] [CONNECT] Opening communication channel (BLE/WiFi)...`,
+      `[00:00.700] [HANDSHAKE] Sending 'QUERY_CHIP_MODEL' command block...`,
+      `[00:01.100] [RESPONSE] Received response: 0x55 0xAA [FINGERPRINT]`,
+      `[00:01.400] [AUTO-DETECT] Parsing controller hardware signatures...`,
+    ];
+
+    for (let i = 0; i < logs.length; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      setHandshakeLogs(prev => [...prev, logs[i]]);
+    }
+
+    let detectedText = "";
+    let finalModelName = "ESP32 (Classic)";
+    if (targetModel === "S3") {
+      detectedText = `[00:01.800] [DETECTED] Chip: ESP32-S3 (Dual-Core Xtensa® LX7, RMT & USB-OTG Enabled)`;
+      finalModelName = "ESP32-S3";
+    } else if (targetModel === "C3") {
+      detectedText = `[00:01.800] [DETECTED] Chip: ESP32-C3 (Single-Core RISC-V, Low Power Enabled)`;
+      finalModelName = "ESP32-C3";
+    } else {
+      detectedText = `[00:01.800] [DETECTED] Chip: ESP32 (Classic Dual-Core Xtensa® LX6, Legacy WiFi/BLE)`;
+      finalModelName = "ESP32";
+    }
+
+    await new Promise(r => setTimeout(r, 450));
+    setHandshakeLogs(prev => [...prev, detectedText]);
+
+    await new Promise(r => setTimeout(r, 500));
+    setHandshakeLogs(prev => [
+      ...prev,
+      `[00:02.300] [OPTIMIZE] Auto-applying optimized firmware pin mapping for ${finalModelName}...`
+    ]);
+
+    let ledPins = "25, 26";
+    let motorPin = 12;
+    let sensorPin = 27;
+    if (targetModel === "S3") {
+      ledPins = "15, 16";
+      motorPin = 17;
+      sensorPin = 18;
+    } else if (targetModel === "C3") {
+      ledPins = "4, 5";
+      motorPin = 6;
+      sensorPin = 7;
+    }
+
+    await new Promise(r => setTimeout(r, 600));
+    setHandshakeLogs(prev => [
+      ...prev,
+      `[00:02.900] [OPTIMIZE] LED data pins: GPIO ${ledPins}`,
+      `[00:03.100] [OPTIMIZE] Motor PWM pin: GPIO ${motorPin}`,
+      `[00:03.300] [OPTIMIZE] Hall sensor interrupt: GPIO ${sensorPin}`,
+    ]);
+
+    await new Promise(r => setTimeout(r, 400));
+    setHandshakeLogs(prev => [
+      ...prev,
+      `[00:03.700] [SUCCESS] Handshake fully complete! Device optimized and ready.`
+    ]);
+
+    // Apply the actual state update
+    setChipModel(finalModelName);
+    applyOptimizedPinDefaults(targetModel);
+    
+    // Call server API to synchronize model in real express backend
+    try {
+      await fetch("/api/set-model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: finalModelName })
+      });
+    } catch (e) {
+      console.warn("Could not sync simulated model to server backend:", e);
+    }
+
+    setIsHandshaking(false);
+  };
   
   const handleDownloadLogs = async () => {
     try {
@@ -1946,7 +2076,10 @@ export default function App() {
       const data = await res.json();
       setIsConnected(true);
       
-      if (data.model) setChipModel(data.model);
+      if (data.model && chipModel !== data.model) {
+        setChipModel(data.model);
+        applyOptimizedPinDefaults(data.model);
+      }
       if (data.rpm !== undefined) setRpm(data.rpm);
       if (data.status) {
         setDeviceStatus(data.status);
@@ -2712,7 +2845,13 @@ export default function App() {
             brightness={brightness}
             aiEffectJs={aiEffectJs}
           />
-          <WiringGuide pins={state.led.pins} strips={state.led.strips} />
+          <WiringGuide 
+            pins={state.led.pins} 
+            strips={state.led.strips} 
+            motorPin={state.motor.pin}
+            sensorPin={state.sync.sensorPin}
+            chipModel={chipModel}
+          />
           
           <div className="grid grid-cols-2 gap-4">
             <div className="border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-5 flex flex-col gap-3">
@@ -3867,84 +4006,170 @@ void loop() {
                   {category.slots.map((slotId) => {
                     const saved = presets[slotId];
                     const isPresetActive = saved && saved.activeEffect === activeEffect;
+                    const effectConfig = saved ? EFFECTS.find(e => e.id === saved.activeEffect) : null;
+                    const effectColor = effectConfig?.color || '#a855f7';
 
                     return (
                       <div
                         key={slotId}
-                        className={`flex items-center gap-4 py-4 px-4 transition-all group ${isPresetActive ? 'bg-[#00b4d8]/5' : 'hover:bg-slate-800/30'}`}
+                        onMouseEnter={() => setHoveredPreset(slotId)}
+                        onMouseLeave={() => setHoveredPreset(null)}
+                        className={`flex flex-col py-4 px-4 transition-all group ${isPresetActive ? 'bg-[#00b4d8]/5' : 'hover:bg-slate-800/20'}`}
                       >
-                        {/* Preset Thumbnail */}
-                        <div className="relative shrink-0">
-                          {isPresetActive && (
-                            <motion.div 
-                              animate={{ 
-                                scale: [1, 1.2, 1],
-                                opacity: [0.3, 0.6, 0.3],
-                              }}
-                              transition={{ 
-                                duration: 2, 
-                                repeat: Infinity,
-                                ease: "easeInOut"
-                              }}
-                              className="absolute inset-0 bg-[#00b4d8] rounded-xl blur-md -z-10"
-                            />
-                          )}
-                          <div className={`w-12 h-12 rounded-xl bg-slate-900 border flex items-center justify-center shadow-inner transition ${isPresetActive ? 'border-[#00b4d8] shadow-[0_0_15px_rgba(0,180,216,0.2)]' : 'border-slate-800 group-hover:border-slate-700'}`}>
-                            {saved ? (
-                              <div className="scale-75">
-                                {EFFECTS.find(e => e.id === saved.activeEffect)?.icon(EFFECTS.find(e => e.id === saved.activeEffect)?.color || "#fff")}
-                              </div>
-                            ) : (
-                              <Plus className="w-5 h-5 text-slate-800" />
+                        <div className="flex items-center gap-4 w-full">
+                          {/* Preset Thumbnail */}
+                          <div className="relative shrink-0">
+                            {isPresetActive && (
+                              <motion.div 
+                                animate={{ 
+                                  scale: [1, 1.2, 1],
+                                  opacity: [0.3, 0.6, 0.3],
+                                }}
+                                transition={{ 
+                                  duration: 2, 
+                                  repeat: Infinity,
+                                  ease: "easeInOut"
+                                }}
+                                className="absolute inset-0 bg-[#00b4d8] rounded-xl blur-md -z-10"
+                              />
+                            )}
+                            <div className={`w-12 h-12 rounded-xl bg-slate-900 border flex items-center justify-center shadow-inner transition ${isPresetActive ? 'border-[#00b4d8] shadow-[0_0_15px_rgba(0,180,216,0.2)]' : 'border-slate-800 group-hover:border-slate-700'}`}>
+                              {saved ? (
+                                <div className="scale-75">
+                                  {effectConfig?.icon(effectColor)}
+                                </div>
+                              ) : (
+                                <Plus className="w-5 h-5 text-slate-800" />
+                              )}
+                            </div>
+                            
+                            {isPresetActive && (
+                               <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#00b4d8] border-2 border-[#0c0e15] rounded-full z-10"></div>
                             )}
                           </div>
-                          
-                          {isPresetActive && (
-                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#00b4d8] border-2 border-[#0c0e15] rounded-full z-10"></div>
-                          )}
+
+                          <div className="flex flex-col flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[13px] font-bold ${isPresetActive ? 'text-[#00b4d8]' : 'text-slate-200'}`}>
+                                פרופיל {slotId} / Slot {slotId}
+                              </span>
+                              {isPresetActive && (
+                                <span className="text-[7px] font-black bg-[#00b4d8] text-[#0c0e15] px-1 rounded-sm tracking-tighter uppercase animate-pulse">ACTIVE</span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {saved ? `Effect: ${effectConfig?.label || saved.activeEffect} (${saved.savedAt})` : 'Slot Empty / ריק'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {saved && (
+                              <button
+                                onClick={() => handleLoadPreset(slotId)}
+                                title="Quick Apply / החל מיידית"
+                                className="p-3 border border-emerald-500/30 rounded-xl text-emerald-400/70 hover:text-emerald-400 hover:border-emerald-500 transition-all flex items-center justify-center bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-110 active:scale-90 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-in fade-in zoom-in duration-300"
+                              >
+                                <Zap className="w-5 h-5 fill-current" />
+                              </button>
+                            )}
+                            <div className="h-8 w-[1px] bg-slate-800/50 mx-1"></div>
+                            <button
+                              onClick={() => handleSavePreset(slotId)}
+                              title="Save Current State / שמור נוכחי"
+                              className="p-3 border border-slate-700 rounded-xl hover:text-sky-400 hover:border-sky-400 text-slate-400 transition-all flex items-center justify-center bg-slate-900/40 hover:scale-105 active:scale-95 cursor-pointer"
+                            >
+                              <Save className="w-5 h-5" />
+                            </button>
+                            {saved && (
+                              <button
+                                onClick={() => handleDeletePreset(slotId)}
+                                title="Clear / מחק"
+                                className="p-3 border border-slate-700 hover:border-rose-500 hover:text-rose-500 text-slate-500 rounded-xl transition-all flex items-center justify-center bg-slate-900/40 hover:scale-105 active:scale-95 cursor-pointer"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="flex flex-col flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[13px] font-bold ${isPresetActive ? 'text-[#00b4d8]' : 'text-slate-200'}`}>
-                              פרופיל {slotId} / Slot {slotId}
-                            </span>
-                            {isPresetActive && (
-                              <span className="text-[7px] font-black bg-[#00b4d8] text-[#0c0e15] px-1 rounded-sm tracking-tighter uppercase animate-pulse">ACTIVE</span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-slate-500">
-                            {saved ? `Effect: ${saved.activeEffect} (${saved.savedAt})` : 'Slot Empty / ריק'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {saved && (
-                            <button
-                              onClick={() => handleLoadPreset(slotId)}
-                              title="Quick Apply / החל מיידית"
-                              className="p-3 border border-emerald-500/30 rounded-xl text-emerald-400/70 hover:text-emerald-400 hover:border-emerald-500 transition-all flex items-center justify-center bg-emerald-500/5 hover:bg-emerald-500/10 hover:scale-110 active:scale-90 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-in fade-in zoom-in duration-300"
+                        {/* Expandable Visual Preview HUD on Hover/Inspect */}
+                        <AnimatePresence>
+                          {hoveredPreset === slotId && saved && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                              animate={{ height: "auto", opacity: 1, marginTop: 12 }}
+                              exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                              transition={{ duration: 0.25, ease: "easeOut" }}
+                              className="overflow-hidden flex flex-col gap-2.5 bg-slate-950/70 border border-slate-800/60 rounded-xl p-3"
                             >
-                              <Zap className="w-5 h-5 fill-current" />
-                            </button>
+                              <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Effect Configuration Preview / תצוגה מקדימה</span>
+                                <span className="text-[8px] text-slate-500 font-mono">Slot {slotId} HUD</span>
+                              </div>
+
+                              <div className="flex items-center gap-4">
+                                {/* Spinning Holographic Mini-Disc Visualizer */}
+                                <div className="relative w-12 h-12 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden shrink-0 flex items-center justify-center shadow-[0_0_10px_rgba(0,0,0,0.8)]">
+                                  {/* Dynamic color aura gradient based on effect speed */}
+                                  <motion.div 
+                                    animate={{ rotate: 360 }}
+                                    transition={{ repeat: Infinity, ease: "linear", duration: 12 / (saved.effectSpeedRate || 1) }}
+                                    className="absolute inset-1 rounded-full opacity-40 filter blur-[2px]"
+                                    style={{
+                                      background: `conic-gradient(from 0deg, ${effectColor}11, ${effectColor}ff, ${effectColor}11)`
+                                    }}
+                                  />
+
+                                  {/* Mini POV Motor Fan Blade spinning based on motor speed */}
+                                  <motion.div 
+                                    animate={{ rotate: 360 }}
+                                    transition={{ repeat: Infinity, ease: "linear", duration: Math.max(0.5, 30 / (saved.motorSpeed || 80)) }}
+                                    className="absolute w-0.5 h-10 bg-slate-300/80 rounded-full"
+                                  />
+
+                                  {/* Holographic Glowing Core */}
+                                  <motion.div 
+                                    animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+                                    transition={{ duration: 1.5, repeat: Infinity }}
+                                    className="w-2 h-2 rounded-full z-10 shadow-[0_0_8px_#fff]"
+                                    style={{ backgroundColor: effectColor }}
+                                  />
+                                </div>
+
+                                {/* Config parameters stats grid */}
+                                <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-slate-300 font-mono">
+                                  <div className="flex items-center gap-1.5">
+                                    <Zap className="w-3 h-3 text-[#00b4d8]" />
+                                    <span className="text-slate-400">RPM:</span>
+                                    <span className="font-bold text-white">{saved.motorSpeed}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <Sun className="w-3 h-3 text-amber-400" />
+                                    <span className="text-slate-400">Bright:</span>
+                                    <span className="font-bold text-white">{Math.round((saved.brightness || 0) / 2.55)}%</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <SlidersHorizontal className="w-3 h-3 text-emerald-400" />
+                                    <span className="text-slate-400">Scale:</span>
+                                    <span className="font-bold text-white">{saved.effectScale || 100}%</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <Activity className="w-3 h-3 text-purple-400" />
+                                    <span className="text-slate-400">Rate:</span>
+                                    <span className="font-bold text-white">{saved.effectSpeedRate || 1.0}x</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Custom Text or Custom Config indicator */}
+                              {saved.povText && (
+                                <div className="text-[9px] bg-slate-900/50 border border-slate-800/40 rounded px-2 py-1 flex items-center justify-between font-mono">
+                                  <span className="text-slate-500">POV TEXT:</span>
+                                  <span className="text-[#00b4d8] font-bold tracking-wider">&quot;{saved.povText}&quot;</span>
+                                </div>
+                              )}
+                            </motion.div>
                           )}
-                          <div className="h-8 w-[1px] bg-slate-800/50 mx-1"></div>
-                          <button
-                            onClick={() => handleSavePreset(slotId)}
-                            title="Save Current State / שמור נוכחי"
-                            className="p-3 border border-slate-700 rounded-xl hover:text-sky-400 hover:border-sky-400 text-slate-400 transition-all flex items-center justify-center bg-slate-900/40 hover:scale-105 active:scale-95 cursor-pointer"
-                          >
-                            <Save className="w-5 h-5" />
-                          </button>
-                          {saved && (
-                            <button
-                              onClick={() => handleDeletePreset(slotId)}
-                              title="Clear / מחק"
-                              className="p-3 border border-slate-700 hover:border-rose-500 hover:text-rose-500 text-slate-500 rounded-xl transition-all flex items-center justify-center bg-slate-900/40 hover:scale-105 active:scale-95 cursor-pointer"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          )}
-                        </div>
+                        </AnimatePresence>
                       </div>
                     );
                   })}
@@ -4141,6 +4366,99 @@ void loop() {
           >
             CONFIRM BLUETOOTH SETTINGS
           </button>
+
+          {/* Hardware Auto-Detection Handshake Emulator Section */}
+          <div className="border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-5 flex flex-col gap-4 mt-2">
+            <div className="flex flex-col gap-1 border-b border-slate-800/80 pb-3">
+              <span className="text-[12px] font-bold text-slate-200 tracking-wide flex items-center gap-2">
+                <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
+                HARDWARE AUTO-DETECTION FLOW / זיהוי חומרה אוטומטי
+              </span>
+              <span className="text-[10px] text-slate-500">
+                הפעל תהליך לחיצת יד מול בקר ה-ESP32 לזיהוי אוטומטי של דגם הצ'יפ והחלת פיני חיבור מותאמים אישית
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                Select Emulated Device for Handshake / בחר דגם להתקשרות:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "Classic", name: "ESP32 Classic", desc: "GPIO 25,26 / 12 / 27" },
+                  { id: "S3", name: "ESP32-S3", desc: "GPIO 15,16 / 17 / 18" },
+                  { id: "C3", name: "ESP32-C3", desc: "GPIO 4,5 / 6 / 7" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setSelectedSimModel(m.id);
+                      safeSaveLocal("holospin_sim_model", m.id);
+                    }}
+                    disabled={isHandshaking}
+                    className={`flex flex-col items-center justify-center p-3 rounded-xl border transition cursor-pointer ${
+                      selectedSimModel === m.id
+                        ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                        : "border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    <span className="text-[11px] font-bold">{m.name}</span>
+                    <span className="text-[9px] opacity-75 mt-0.5">{m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => runHandshakeFlow(selectedSimModel)}
+              disabled={isHandshaking}
+              className={`w-full py-4 rounded-xl text-[11px] font-bold tracking-widest uppercase transition flex items-center justify-center gap-2 cursor-pointer ${
+                isHandshaking
+                  ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                  : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95"
+              }`}
+            >
+              {isHandshaking ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></span>
+                  RUNNING HANDSHAKE...
+                </>
+              ) : (
+                "INITIATE HANDSHAKE & OPTIMIZE / התחל לחיצת יד"
+              )}
+            </button>
+
+            {/* Handshake Terminal Log Output */}
+            {(handshakeLogs.length > 0 || isHandshaking) && (
+              <div className="bg-[#050608] rounded-xl p-4 border border-slate-800 flex flex-col gap-1.5 shadow-inner animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1 text-[9px] font-mono text-slate-500">
+                  <span>HANDSHAKE_TELEMETRY_LOG_v1.0</span>
+                  <span className="animate-pulse text-green-500">● LIVE FEED</span>
+                </div>
+                <div className="font-mono text-[10px] text-green-400 flex flex-col gap-1 max-h-48 overflow-y-auto leading-relaxed">
+                  {handshakeLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={
+                        log.includes("[SUCCESS]")
+                          ? "text-blue-400 font-bold"
+                          : log.includes("[DETECTED]")
+                          ? "text-yellow-400 font-bold"
+                          : log.includes("[OPTIMIZE]")
+                          ? "text-cyan-400"
+                          : "text-green-500"
+                      }
+                    >
+                      {log}
+                    </div>
+                  ))}
+                  {isHandshaking && (
+                    <div className="animate-pulse text-green-500 opacity-70">_</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
