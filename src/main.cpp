@@ -120,6 +120,18 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
 // --- API: ENDPOINT HANDLERS ---
 void setupServerTransitions() {
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
+
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        if (request->method() == HTTP_OPTIONS) {
+            request->send(200);
+        } else {
+            request->send(404, "text/plain", "Not found");
+        }
+    });
+
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         StaticJsonDocument<512> doc;

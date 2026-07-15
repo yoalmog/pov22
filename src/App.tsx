@@ -103,6 +103,8 @@ import { HardwareHealth } from "./components/HardwareHealth";
 import { InfoTooltip } from "./components/InfoTooltip";
 import { AiEffectStudio } from "./components/AiEffectStudio";
 import { LedVisualizer } from "./components/LedVisualizer";
+import { AiModelInstaller } from "./components/AiModelInstaller";
+import { PinSelectorPanel } from "./components/PinSelectorPanel";
 import { WiringGuide } from "./components/WiringGuide";
 import { Esp32Board } from "./components/Esp32Board";
 import { Gauge } from "./components/Gauge";
@@ -917,9 +919,8 @@ export default function App() {
       await sendCommand({ category: "calibrate", update: payload });
     } else if (isConnected) {
       try {
-        const isLocalHost = window.location.hostname === "192.168.4.1";
-        const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/calibrate" : "/calibrate";
-        await fetch(targetUrl, {
+        const targetUrl = getDeviceUrl("/calibrate");
+        await safeFetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -1581,9 +1582,8 @@ export default function App() {
   
   const handleDownloadLogs = async () => {
     try {
-      const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/logs" : "/logs";
-      const res = await fetch(targetUrl);
+      const targetUrl = getDeviceUrl("/logs");
+      const res = await safeFetch(targetUrl);
       if (!res.ok) throw new Error("Failed to fetch logs");
       const logs = await res.text();
       
@@ -1686,10 +1686,8 @@ export default function App() {
 
     try {
       // Real diagnostic API call to ESP32
-      const isCapacitor = !!(window as any).Capacitor;
-      const baseUrl = (state.wifi.mode === "AP" || isCapacitor) ? "http://192.168.4.1" : "";
-      const targetUrl = `${baseUrl}/api/status`;
-      const res = await fetch(targetUrl, { signal: diagnosticAbortControllerRef.current.signal });
+      const targetUrl = getDeviceUrl("/api/status");
+      const res = await safeFetch(targetUrl, { signal: diagnosticAbortControllerRef.current.signal });
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error("Diagnostics API failed");
       const data = await res.json();
@@ -1830,7 +1828,7 @@ export default function App() {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), 2000);
         const isLocalHost = window.location.hostname === "192.168.4.1";
-        const wifiRes = await fetch(isLocalHost ? "http://192.168.4.1/api/health" : "/api/health", { 
+        const wifiRes = await safeFetch(isLocalHost ? "http://192.168.4.1/api/health" : "/api/health", { 
           signal: controller.signal,
           mode: 'no-cors' // Allow reaching even if CORS not set (diagnostic only)
         }).catch(() => null);
@@ -1911,9 +1909,8 @@ export default function App() {
     setToastMessage(`משדר הגדרות WiFi למקרן... / Sending WiFi settings...`);
     
     try {
-      const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/config" : "/config";
-      const res = await fetch(targetUrl, {
+      const targetUrl = getDeviceUrl("/config");
+      const res = await safeFetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -1976,7 +1973,7 @@ export default function App() {
     try {
       const isLocalHost = window.location.hostname === "192.168.4.1";
       const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
-      const res = await fetch(`${baseUrl}/api/files`);
+      const res = await safeFetch(`${baseUrl}/api/files`);
       if (!res.ok) throw new Error("Failed to read from ESP32 SD Card");
       const files = await res.json();
       
@@ -2031,7 +2028,7 @@ export default function App() {
       const isLocalHost = window.location.hostname === "192.168.4.1";
       const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
       
-      const res = await fetch(`${baseUrl}/api/write-file?filename=${encodeURIComponent(filename)}`, {
+      const res = await safeFetch(`${baseUrl}/api/write-file?filename=${encodeURIComponent(filename)}`, {
         method: "POST",
         headers: {
           "Content-Type": "text/plain"
@@ -2069,10 +2066,9 @@ export default function App() {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 2000);
       
-      const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/status" : "/status";
+      const targetUrl = getDeviceUrl("/status");
       
-      const res = await fetch(targetUrl, { signal: controller.signal });
+      const res = await safeFetch(targetUrl, { signal: controller.signal });
       clearTimeout(id);
       if (!res.ok) throw new Error("Status fetch non-ok");
       const data = await res.json();
@@ -2177,9 +2173,8 @@ export default function App() {
         await sendCommand(payload);
       } else if (isConnected) {
         try {
-          const isLocalHost = window.location.hostname === "192.168.4.1";
-          const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/control" : "/control";
-          await fetch(targetUrl, {
+          const targetUrl = getDeviceUrl("/control");
+          await safeFetch(targetUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -2279,10 +2274,9 @@ export default function App() {
     try {
       setCalibrationStage("requesting");
       setShowCalibrateModal(true);
-      const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/calibrate" : "/calibrate";
+      const targetUrl = getDeviceUrl("/calibrate");
       
-      const res = await fetch(targetUrl, { method: "POST" });
+      const res = await safeFetch(targetUrl, { method: "POST" });
       if (!res.ok) {
         throw new Error("מכשיר לא הגיב לבקשת כיול / Device failed to respond to calibration request");
       }
@@ -2325,10 +2319,9 @@ export default function App() {
 
       setToastMessage("Uploading frames... / מעלה פריימים ");
       
-      const isLocalHost = window.location.hostname === "192.168.4.1";
-      const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/api/upload-frames" : "/api/upload-frames";
+      const targetUrl = getDeviceUrl("/api/upload-frames");
       
-      const response = await fetch(targetUrl, {
+      const response = await safeFetch(targetUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream"
@@ -2465,9 +2458,8 @@ export default function App() {
     // Fallback to HTTP API if network connected
     else if (isConnected) {
       try {
-        const isLocalHost = window.location.hostname === "192.168.4.1";
-        const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/config" : "/config";
-        await fetch(targetUrl, {
+        const targetUrl = getDeviceUrl("/config");
+        await safeFetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -4612,7 +4604,7 @@ void loop() {
                                   const isLocalHost = window.location.hostname === "192.168.4.1";
                                   const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
                                   
-                                  const res = await fetch(`${baseUrl}/api/delete-file`, {
+                                  const res = await safeFetch(`${baseUrl}/api/delete-file`, {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ filename: file.name })
@@ -4715,7 +4707,7 @@ void loop() {
                                   const isLocalHost = window.location.hostname === "192.168.4.1";
                                   const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
                                   
-                                  const res = await fetch(`${baseUrl}/api/delete-file`, {
+                                  const res = await safeFetch(`${baseUrl}/api/delete-file`, {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ filename: file.name })
@@ -4934,6 +4926,18 @@ void loop() {
             </p>
           </div>
         </div>
+      );
+    }
+
+    if (subPage === "ai_model") {
+      return (
+        <AiModelInstaller onBack={() => setSubPage(null)} />
+      );
+    }
+
+    if (subPage === "pin_selection") {
+      return (
+        <PinSelectorPanel state={state} setState={setState} onBack={() => setSubPage(null)} />
       );
     }
 
@@ -5815,7 +5819,7 @@ void loop() {
 
             <div className="mx-auto w-full max-w-3xl mb-4 text-center">
                <HardwareHealth 
-                 apiUrl={state.wifi.mode === "AP" ? "http://192.168.4.1/status" : "/status"} 
+                 apiUrl={getDeviceUrl("/status")} 
                  externalData={isBluetoothConnected ? streamData : null} 
                  powerLimits={{
                     currentLimit: state.power.currentLimit,
@@ -6009,9 +6013,8 @@ void loop() {
                  if (isBluetoothConnected && activeBleId) {
                    sendCommand(payload);
                  } else {
-                   const isLocalHost = window.location.hostname === "192.168.4.1";
-                   const targetUrl = (state.wifi.mode === "AP" && isLocalHost) ? "http://192.168.4.1/control" : "/control";
-                   fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(console.error);
+                   const targetUrl = getDeviceUrl("/control");
+                   safeFetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(console.error);
                  }
               }
             }} />
@@ -6062,6 +6065,8 @@ void loop() {
               />
               <SettingsRow onClick={() => setSubPage("wifi")} icon={<Wifi className="w-5 h-5 text-sky-400" />} title="WiFi Settings" subtitle={state.wifi.ssid || "Disconnected"} />
               <SettingsRow onClick={() => setSubPage("gesture_mapping")} icon={<Hand className="w-5 h-5 text-emerald-400" />} title="Gesture Mapping" subtitle="Configure AI Controls" />
+              <SettingsRow onClick={() => setSubPage("ai_model")} icon={<Cpu className="w-5 h-5 text-indigo-400" />} title="AI Model Installer" subtitle="Configure & cache offline models" />
+              <SettingsRow onClick={() => setSubPage("pin_selection")} icon={<SlidersHorizontal className="w-5 h-5 text-fuchsia-400" />} title="Pin Configuration" subtitle="Map GPIO Pins Interactively" />
               <SettingsRow onClick={() => setSubPage("schedule")} icon={<Clock className="w-5 h-5 text-purple-400" />} title="Schedules" subtitle={`${schedules.filter(s => s.active).length} Active Timers`} />
               <SettingsRow onClick={() => setSubPage("calibration")} icon={<Target className="w-5 h-5 text-teal-400" />} title="Calibration" subtitle="Angle & Timing" />
               <SettingsRow onClick={() => setSubPage("firmware")} icon={<Download className="w-5 h-5 text-emerald-400" />} title="Firmware" subtitle="Update POV Core" />

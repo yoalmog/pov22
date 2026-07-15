@@ -74,9 +74,14 @@ export function useHardwareStream(initialDeviceId: string | null) {
   useEffect(() => {
     if (!deviceId) return;
 
+    let isActive = true;
     let isSubscribed = false;
+    let currentAttempt = 0;
+    const maxRetries = 5;
+    let reconnectTimer: NodeJS.Timeout | null = null;
     
     const connect = async () => {
+      if (!isActive) return;
       try {
         setIsConnecting(true);
         // Drop existing connection if any
@@ -84,20 +89,29 @@ export function useHardwareStream(initialDeviceId: string | null) {
 
         // Timeout handler for connection hangs
         connectionTimeoutRef.current = setTimeout(() => {
-          if (!isConnected) {
-            setError("Connection attempt timed out");
+          if (isActive && !isSubscribed) {
+            handleError(new Error("Connection attempt timed out"));
           }
         }, 8000);
 
         await BleClient.connect(deviceId, (disconnectedId) => {
-          setIsConnected(false);
-          setError("Hardware connection dropped unexpectedly.");
+          if (isActive) {
+            setIsConnected(false);
+            isSubscribed = false;
+            handleError(new Error("Hardware connection dropped unexpectedly."));
+          }
         });
 
         if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
 
+        if (!isActive) {
+           BleClient.disconnect(deviceId).catch(() => {});
+           return;
+        }
+
         setIsConnected(true);
         setError(null);
+        currentAttempt = 0; // Reset on success
 
         await BleClient.startNotifications(
           deviceId,
@@ -121,17 +135,44 @@ export function useHardwareStream(initialDeviceId: string | null) {
         );
         isSubscribed = true;
       } catch (err: any) {
-        setError("Connection failed: " + (err.message || err));
-        setIsConnected(false);
+        if (isActive) {
+          handleError(err);
+        }
       } finally {
-        setIsConnecting(false);
+        if (isActive) setIsConnecting(false);
+      }
+    };
+
+    const handleError = (err: any) => {
+      if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+      const errMsg = err.message || String(err);
+      setIsConnected(false);
+      isSubscribed = false;
+      
+      const shouldRetry = errMsg.toLowerCase().includes("timeout") || 
+                          errMsg.toLowerCase().includes("fetch") || 
+                          errMsg.toLowerCase().includes("dropped") ||
+                          errMsg.toLowerCase().includes("disconnected") ||
+                          errMsg.toLowerCase().includes("failed");
+
+      if (shouldRetry && currentAttempt < maxRetries && isActive) {
+        currentAttempt++;
+        const delay = Math.pow(2, currentAttempt) * 1000; // Exponential backoff (2s, 4s, 8s, 16s...)
+        setError(`${errMsg} - Retrying in ${delay/1000}s (Attempt ${currentAttempt}/${maxRetries})...`);
+        reconnectTimer = setTimeout(() => {
+          if (isActive) connect();
+        }, delay);
+      } else if (isActive) {
+        setError(`Connection failed: ${errMsg}`);
       }
     };
 
     connect();
 
     return () => {
+      isActive = false;
       if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (isSubscribed) {
         BleClient.stopNotifications(deviceId, ESP32_SERVICE, ESP32_CHARACTERISTIC_TX).catch(() => {});
       }
