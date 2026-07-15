@@ -2,10 +2,25 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
+import { GoogleGenAI, Type } from "@google/genai";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Initialize GoogleGenAI
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  let ai: GoogleGenAI | null = null;
+  if (geminiApiKey) {
+    ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
 
   // Ensure upload directory exists
   const uploadDir = path.join(process.cwd(), 'public', 'uploads');
@@ -30,6 +45,69 @@ async function startServer() {
 
   // --- REAL BACKEND ENDPOINTS (Proxying or Handling) ---
   app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
+  app.post("/api/generate-effect", async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      if (!ai) {
+        return res.status(503).json({ 
+          error: "Cloud AI fallback is not configured. Please add GEMINI_API_KEY in Settings > Secrets." 
+        });
+      }
+
+      const systemPrompt = `You are an expert full-stack developer writing effects for a POV LED hologram.
+The user wants an effect that: ${prompt}
+
+You must return a JSON object with two fields:
+1. "cpp": The C++ case statement block for a switch statement inside getEffectColorRaw.
+   Signature: RgbColor getEffectColorRaw(int ledIdx, float angle, unsigned long timeMs)
+   Variables available: ledIdx (0 to PIXEL_COUNT-1), angle (0 to 360), timeMs, r (ledIdx / PIXEL_COUNT from 0.0 to 1.0), DEG_TO_RAD.
+   Just return the raw case body logic that returns RgbColor(r,g,b).
+2. "js": The JavaScript equivalent function body for the web visualizer.
+   Signature: (stripIndex, ledIndex, time, brightness, arms) => string (rgba/hsla string)
+   Variables available: stripIndex, ledIndex (0 to 14), time (tick counter, incremented every 50ms).
+   Return the JS logic as a string.
+
+Return ONLY the raw JSON object conforming to the schema.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: systemPrompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              cpp: {
+                type: Type.STRING,
+                description: "C++ code block inside the case statement"
+              },
+              js: {
+                type: Type.STRING,
+                description: "JavaScript equivalent function body returning an rgba or hsla string"
+              }
+            },
+            required: ["cpp", "js"]
+          }
+        }
+      });
+
+      const responseText = response.text;
+      if (!responseText) {
+        throw new Error("Empty response from Gemini");
+      }
+
+      const parsed = JSON.parse(responseText);
+      res.json(parsed);
+    } catch (e: any) {
+      console.error("Gemini effect generation error:", e);
+      res.status(500).json({ error: e.message || "Failed to generate effect using Cloud AI" });
+    }
+  });
 
   app.post("/api/upload-file", upload.single('file'), (req, res) => {
     if (!req.file) {

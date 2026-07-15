@@ -33,11 +33,10 @@ export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
     setIsGenerating(true);
     setError(null);
     try {
-      if (!isLocalAiAvailable) {
-         throw new Error("Local AI is not available in your browser. Enable Gemini Nano in Chrome flags.");
-      }
+      let parsed: { cpp: string; js: string };
 
-      const systemPrompt = `You are an expert full-stack developer writing effects for a POV LED hologram.
+      if (isLocalAiAvailable) {
+        const systemPrompt = `You are an expert full-stack developer writing effects for a POV LED hologram.
 The user wants an effect that: ${prompt}
 
 You must return a JSON object with two fields:
@@ -53,13 +52,30 @@ You must return a JSON object with two fields:
 Return ONLY the raw JSON object, no markdown blocks, no markdown formatting.
 Format: {"cpp": "...", "js": "..."}`;
 
-      const session = await (window as any).ai.languageModel.create({
-        systemPrompt: "You are a specialized code generator that outputs strictly raw JSON.",
-      });
+        const session = await (window as any).ai.languageModel.create({
+          systemPrompt: "You are a specialized code generator that outputs strictly raw JSON.",
+        });
 
-      const responseText = await session.prompt(systemPrompt);
-      const rawText = responseText.replace(/```(json)?|```/gi, "").trim() || "{}";
-      const parsed = JSON.parse(rawText);
+        const responseText = await session.prompt(systemPrompt);
+        const rawText = responseText.replace(/```(json)?|```/gi, "").trim() || "{}";
+        parsed = JSON.parse(rawText);
+      } else {
+        // Fallback to Server-Side Cloud Gemini API
+        const response = await fetch("/api/generate-effect", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || "Failed to generate effect via Cloud AI fallback.");
+        }
+
+        parsed = await response.json();
+      }
       
       if (!parsed.cpp || !parsed.js) {
         throw new Error("AI did not return the expected code format.");
@@ -68,7 +84,7 @@ Format: {"cpp": "...", "js": "..."}`;
       onEffectGenerated(parsed.cpp, parsed.js);
       setPrompt("");
     } catch (err: any) {
-      setError(err.message || "An error occurred during local generation.");
+      setError(err.message || "An error occurred during generation.");
     } finally {
       setIsGenerating(false);
     }
@@ -77,19 +93,23 @@ Format: {"cpp": "...", "js": "..."}`;
   return (
     <div className="border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-5 flex flex-col gap-4">
       <div className="flex items-center gap-2 mb-2">
-        <Cpu className="w-5 h-5 text-emerald-400" />
+        <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
         <h3 className="text-[13px] font-black text-slate-200 tracking-widest uppercase">
-          Local AI Effect Studio
+          HoloSpin AI Effect Studio
         </h3>
-        {isLocalAiAvailable === true && (
-          <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md font-bold uppercase tracking-wider">
-            Ready (On-Device)
+        {isLocalAiAvailable === true ? (
+          <span className="ml-auto text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md font-bold uppercase tracking-wider">
+            On-Device AI
+          </span>
+        ) : (
+          <span className="ml-auto text-[9px] bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-md font-bold uppercase tracking-wider">
+            Cloud Gemini AI
           </span>
         )}
       </div>
       
       <p className="text-[11px] text-slate-400">
-        Describe a custom lighting effect. Our local on-device AI will generate the optimized C++ and JS code in real-time.
+        Describe a custom lighting effect. Our AI engine will generate the optimized C++ and JS code in real-time.
       </p>
 
       <div className="flex gap-2">
@@ -98,24 +118,24 @@ Format: {"cpp": "...", "js": "..."}`;
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="e.g., A rotating galaxy with purple and gold stars..."
-          className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50 transition-colors"
+          className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-colors"
           onKeyDown={(e) => {
             if (e.key === "Enter") handleGenerate();
           }}
-          disabled={isGenerating || isLocalAiAvailable === false}
+          disabled={isGenerating}
         />
         <button
           onClick={handleGenerate}
-          disabled={isGenerating || !prompt.trim() || isLocalAiAvailable === false}
-          className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl px-4 flex items-center justify-center hover:bg-emerald-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isGenerating || !prompt.trim()}
+          className="bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-xl px-4 flex items-center justify-center hover:bg-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
         </button>
       </div>
       
       {isLocalAiAvailable === false && (
-        <div className="text-[11px] text-amber-400 bg-amber-400/10 p-3 rounded-xl border border-amber-400/20">
-          Local AI (window.ai) is not available in your browser. Please ensure you are using Chrome 127+ and have enabled the Prompt API for Gemini Nano in chrome://flags.
+        <div className="text-[10px] text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800/60 leading-relaxed">
+          ✨ <strong className="text-slate-300">Tip:</strong> Operating in <strong className="text-indigo-400 font-bold">Cloud Gemini AI Mode</strong> since your browser does not support on-device models. Generation is fully enabled!
         </div>
       )}
 
