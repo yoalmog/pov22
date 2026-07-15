@@ -1451,7 +1451,7 @@ export default function App() {
   const [deviceStatus, setDeviceStatus] = useState<string>("ready");
   const [chipModel, setChipModel] = useState<string | null>(null);
 
-  const applyOptimizedPinDefaults = (model: string) => {
+  const applyOptimizedPinDefaults = (model: string, showToast = true) => {
     let ledPins = "25, 26";
     let motorPin = 12;
     let sensorPin = 27;
@@ -1490,7 +1490,9 @@ export default function App() {
       return updated;
     });
 
-    setToastMessage(`חיבור בוצע בהצלחה! זוהתה חומרת ${displayName}. הוגדרו פינים אופטימליים. / Handshake successful! Detected ${displayName}. Optimized pin defaults applied.`);
+    if (showToast) {
+      setToastMessage(`חיבור בוצע בהצלחה! זוהתה חומרת ${displayName}. הוגדרו פינים אופטימליים. / Handshake successful! Detected ${displayName}. Optimized pin defaults applied.`);
+    }
   };
 
   const runHandshakeFlow = async (targetModel: string) => {
@@ -2078,7 +2080,7 @@ export default function App() {
       
       if (data.model && chipModel !== data.model) {
         setChipModel(data.model);
-        applyOptimizedPinDefaults(data.model);
+        applyOptimizedPinDefaults(data.model, false);
       }
       if (data.rpm !== undefined) setRpm(data.rpm);
       if (data.status) {
@@ -2390,6 +2392,7 @@ export default function App() {
       sync: {
         hallSensor: true,
         sensorPin: 27,
+        adcPin: 32,
         triggerMode: "FALLING",
         signalInvert: false,
         quality: "100% PERFECT",
@@ -3245,6 +3248,19 @@ export default function App() {
             />
           </div>
 
+          <div className="flex justify-between items-center border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-4">
+            <span className="text-[13px] text-slate-200 tracking-wide">
+              Analog Mic Pin (ADC)
+            </span>
+            <input
+              type="text"
+              className="bg-transparent font-medium text-slate-300 text-right focus:outline-none w-[60px]"
+              value={state.sync.adcPin ?? 32}
+              onChange={(e) => updateState("sync", "adcPin", e.target.value)}
+              placeholder="e.g. 32"
+            />
+          </div>
+
           <div className="flex justify-between items-center mt-2">
             <span className="text-[11px] text-slate-400 tracking-wide flex items-center">
               Trigger Mode
@@ -3309,6 +3325,7 @@ export default function App() {
       if (!state.led?.pins?.trim()) missingFields.push("LED Strip Pins / פיני חיבור לדים");
       if (!state.led?.ledsPerStrip) missingFields.push("LED Count / כמות לדים (Pixel Count)");
       if (!state.sync?.sensorPin?.toString().trim()) missingFields.push("Hall Sensor Pin / פין חיישן טייל");
+      if (!state.sync?.adcPin?.toString().trim()) missingFields.push("Analog Mic Pin (ADC) / פין מיקרופון (ADC)");
       if (!state.motor?.pin?.toString().trim()) missingFields.push("Motor Pin / פין מנוע");
 
       if (missingFields.length > 0) {
@@ -3402,6 +3419,7 @@ ${stripDefines}
 // SENSOR AND MOTOR PINS
 #define HALL_PIN ${state.sync.sensorPin}           // חיישן הול (Hall Effect)
 #define MOTOR_PIN ${state.motor.pin}          // פין מנוע
+#define MIC_PIN ${state.sync.adcPin ?? 32}            // מיקרופון אנלוגי (ADC)
 #define MOTOR_FREQ ${state.motor.pwmFreq.replace(" Hz", "")}       // תדר עבודה של המנוע
 #define MOTOR_RES ${state.motor.pwmRes.replace(" Bit", "")}           // רזולוציית בקרת מהירות
 
@@ -3818,7 +3836,7 @@ void loop() {
                 
                 {/* Interactive ESP32 PCB Guide Board */}
                 <div className="my-3 scale-[0.9] origin-top bg-black/40 rounded-xl overflow-hidden border border-slate-800/60 p-2">
-                  <Esp32Board activePins={["25", "26", "27", "14", "16", "17"]} />
+                  <Esp32Board activePins={["25", "26", "27", "14"]} />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 font-mono text-[10.5px]">
@@ -3838,17 +3856,13 @@ void loop() {
                     <span>בקרת מנוע / Motor PWM Gate</span>
                     <span className="bg-sky-900/30 text-sky-400 font-bold px-2 py-0.5 rounded border border-sky-800/30">GPIO 14</span>
                   </div>
-                  <div className="bg-[#050608] border border-slate-800 p-2 rounded-xl flex justify-between items-center text-slate-200">
-                    <span>בלוטות' HC-05 TX Pin</span>
-                    <span className="bg-emerald-900/30 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-800/30">GPIO 16 (RX2)</span>
-                  </div>
-                  <div className="bg-[#050608] border border-slate-800 p-2 rounded-xl flex justify-between items-center text-slate-200">
-                    <span>בלוטות' HC-05 RX Pin</span>
-                    <span className="bg-emerald-900/30 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-800/30">GPIO 17 (TX2)</span>
+                  <div className="bg-[#050608] border border-slate-800 p-2 rounded-xl flex justify-between items-center text-slate-200 sm:col-span-2">
+                    <span>בלוטות' מובנה / Built-in ESP32 BT</span>
+                    <span className="bg-emerald-900/30 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-800/30">חומרה פנימית - ללא פינים / On-Chip (No External Wiring)</span>
                   </div>
                 </div>
                 <div className="mt-2 bg-[#1b1509] p-2 rounded-xl border border-amber-600/20 text-[9.5px] text-amber-500">
-                  ⚠️ <strong>הערת אדמה משותפת:</strong> חובה לחבר את פין האדמה GND של ה-ESP32, ספקי הכוח, מודול הבלוטות' והלדים יחד!
+                  ⚠️ <strong>הערת אדמה משותפת:</strong> חובה לחבר את פין האדמה GND של ה-ESP32, ספקי הכוח והלדים יחד!
                 </div>
               </div>
 
@@ -6178,10 +6192,16 @@ void loop() {
         <AnimatePresence mode="wait">
           <motion.div
             key={subPage || activeTab}
-            initial={{ opacity: 0, x: 25 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -25 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, x: 18, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -18, scale: 0.98 }}
+            transition={{
+              type: "spring",
+              stiffness: 320,
+              damping: 28,
+              mass: 0.8,
+              opacity: { duration: 0.16 }
+            }}
             className="flex flex-col w-full min-h-max"
           >
             {renderHeader()}

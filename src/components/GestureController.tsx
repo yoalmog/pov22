@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import { Eye, Ruler, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface GestureControllerProps {
   active: boolean;
@@ -34,6 +35,12 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   const lastHandPos = useRef<{ x: number; y: number } | null>(null);
   const lastMovePos = useRef<{ x: number; y: number } | null>(null);
   const lastVideoTime = useRef(-1);
+
+  // Hand distance & tracking state diagnostic telemetry
+  const [handDistance, setHandDistance] = useState<number | null>(null);
+  const [distanceStatus, setDistanceStatus] = useState<'TOO_FAR' | 'TOO_CLOSE' | 'OPTIMAL' | 'OUT_OF_ZONE' | 'NO_HAND'>('NO_HAND');
+  const [feedbackMessage, setFeedbackMessage] = useState<string>('Place hand in active tracking area');
+  const lastStateUpdateTime = useRef<number>(0);
 
   // Clear current gesture text
   useEffect(() => {
@@ -159,6 +166,51 @@ export const GestureController: React.FC<GestureControllerProps> = ({
       
       if (onHandDetected) onHandDetected(true, score, pos);
 
+      // Estimate physical hand distance
+      const wrist = hand[0];
+      const middleMcp = hand[9];
+      const dxDist = wrist.x - middleMcp.x;
+      const dyDist = wrist.y - middleMcp.y;
+      const distance2d = Math.sqrt(dxDist * dxDist + dyDist * dyDist);
+      
+      let calculatedDistCm = Math.round(6.2 / (distance2d || 0.01));
+      calculatedDistCm = Math.max(10, Math.min(120, calculatedDistCm));
+
+      // Bounding box cutoff check to see if hand is too close or partially outside
+      let isCutOff = false;
+      for (const lm of hand) {
+        if (lm.x < 0.01 || lm.x > 0.99 || lm.y < 0.01 || lm.y > 0.99) {
+          isCutOff = true;
+          break;
+        }
+      }
+
+      // Determine status and message
+      let status: 'TOO_FAR' | 'TOO_CLOSE' | 'OPTIMAL' | 'OUT_OF_ZONE' | 'NO_HAND' = 'OPTIMAL';
+      let message = 'Optimal distance. Perform gestures!';
+
+      if (isCutOff) {
+        status = 'TOO_CLOSE';
+        message = 'Hand cut off at edge! Move back slightly.';
+      } else if (calculatedDistCm < 18) {
+        status = 'TOO_CLOSE';
+        message = 'Too close! Move hand 20–45 cm away.';
+      } else if (calculatedDistCm > 48) {
+        status = 'TOO_FAR';
+        message = 'Too far! Move hand closer (20–45 cm).';
+      } else if (!isHandInZone) {
+        status = 'OUT_OF_ZONE';
+        message = 'Hand outside tracking bounds! Center your hand.';
+      }
+
+      const nowTime = Date.now();
+      if (nowTime - lastStateUpdateTime.current > 120) {
+        lastStateUpdateTime.current = nowTime;
+        setHandDistance(calculatedDistCm);
+        setDistanceStatus(status);
+        setFeedbackMessage(message);
+      }
+
       // Gesture Recognition
       const isFingerUp = (tipIdx: number, baseIdx: number) => hand[tipIdx].y < hand[baseIdx].y - 0.05;
       const indexUp = isFingerUp(8, 6);
@@ -252,6 +304,14 @@ export const GestureController: React.FC<GestureControllerProps> = ({
       if (onHandDetected) onHandDetected(false, 0);
       lastHandPos.current = null;
       lastMovePos.current = null;
+
+      const nowTime = Date.now();
+      if (nowTime - lastStateUpdateTime.current > 120) {
+        lastStateUpdateTime.current = nowTime;
+        setHandDistance(null);
+        setDistanceStatus('NO_HAND');
+        setFeedbackMessage('Place hand in active tracking area');
+      }
     }
   }, [onHandDetected, onGesture, onMove, onVerticalSwipe, onHorizontalSwipe, sensitivity]);
 
@@ -347,35 +407,104 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           </button>
         </div>
       )}
-      <div className="relative w-24 h-18 rounded-xl border-2 border-[#00b4d8] bg-black overflow-hidden shadow-2xl">
-        <video 
-          ref={videoRef} 
-          className="w-full h-full object-cover scale-x-[-1]" 
-          muted 
-          autoPlay
-          playsInline 
-        />
-        <canvas 
-          ref={canvasRef}
-          width={240}
-          height={160}
-          className="absolute inset-0 w-full h-full pointer-events-none"
-        />
-        <div className="absolute top-1 left-1 px-1 bg-[#00b4d8]/80 text-[#0c0e15] text-[6px] font-black rounded uppercase">
-          Gesture {modelReady ? "Ready" : "Loading"}
-        </div>
-        {modelReady && !cameraError && (
-          <div className="absolute top-1 right-1 px-1 bg-emerald-500/80 text-[#0c0e15] text-[5px] font-black rounded uppercase animate-pulse">
-            Active
+      <div className="relative w-48 rounded-xl border-2 border-[#00b4d8] bg-[#0c0e15]/95 backdrop-blur-md overflow-hidden shadow-[0_0_30px_rgba(0,180,216,0.25)] flex flex-col">
+        <div className="relative w-full h-36 bg-black">
+          <video 
+            ref={videoRef} 
+            className="w-full h-full object-cover scale-x-[-1]" 
+            muted 
+            autoPlay
+            playsInline 
+          />
+          <canvas 
+            ref={canvasRef}
+            width={240}
+            height={180}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+          />
+          <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-[#00b4d8]/95 text-[#0c0e15] text-[7px] font-black rounded uppercase tracking-wider">
+            Gesture {modelReady ? "Ready" : "Loading"}
           </div>
-        )}
-        {currentGesture && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
-            <span className="text-[7px] font-black text-white bg-[#00b4d8]/90 px-1 rounded animate-pulse">
-              {currentGesture}
+          {modelReady && !cameraError && (
+            <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-emerald-500 text-[#0c0e15] text-[7px] font-black rounded uppercase tracking-wider animate-pulse">
+              Active
+            </div>
+          )}
+          {currentGesture && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none transition-all">
+              <span className="text-[10px] font-black text-white bg-[#00b4d8] border border-cyan-400 px-2 py-1 rounded shadow-lg animate-pulse uppercase tracking-wider">
+                {currentGesture}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="w-full p-2.5 bg-slate-950/90 border-t border-slate-800/80 text-left flex flex-col gap-2">
+          {/* Distance Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Ruler className={`w-3.5 h-3.5 ${
+                distanceStatus === 'OPTIMAL' ? 'text-emerald-400' :
+                distanceStatus === 'NO_HAND' ? 'text-slate-500' : 'text-amber-400'
+              }`} />
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Sensor Dist:</span>
+            </div>
+            <span className={`text-[11px] font-mono font-black ${
+              distanceStatus === 'OPTIMAL' ? 'text-emerald-400' :
+              distanceStatus === 'NO_HAND' ? 'text-slate-500' : 'text-rose-400'
+            }`}>
+              {handDistance !== null ? `${handDistance} cm` : '---'}
             </span>
           </div>
-        )}
+
+          {/* Distance Bar Visualizer */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-[7px] text-slate-500 font-bold uppercase tracking-tight">
+              <span>Too Close</span>
+              <span className="text-emerald-500">Optimal (20-45cm)</span>
+              <span>Too Far</span>
+            </div>
+            <div className="h-2 w-full bg-slate-900 rounded-full relative overflow-hidden flex border border-slate-800/40">
+              {/* Segment 1: Too Close (0% to 15%) */}
+              <div className="h-full w-[15%] bg-rose-500/20 border-r border-rose-500/10" />
+              {/* Segment 2: Optimal (15% to 65%) */}
+              <div className="h-full w-[50%] bg-emerald-500/10 border-r border-emerald-500/10" />
+              {/* Segment 3: Too Far (65% to 100%) */}
+              <div className="h-full w-[35%] bg-amber-500/15" />
+
+              {/* Indicator Dot */}
+              {handDistance !== null && (
+                <div 
+                  className={`absolute top-0.5 w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all duration-150 ${
+                    distanceStatus === 'OPTIMAL' ? 'bg-emerald-400 shadow-emerald-400' :
+                    distanceStatus === 'TOO_CLOSE' ? 'bg-rose-500 shadow-rose-500 animate-pulse' : 'bg-amber-400 shadow-amber-400'
+                  }`}
+                  style={{ 
+                    left: `${Math.min(95, Math.max(2, ((handDistance - 10) / 70) * 100))}%`,
+                    transform: 'translateX(-50%)'
+                  }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Live Actionable Diagnostic Feedback */}
+          <div className={`flex items-start gap-1.5 p-1.5 rounded-md border ${
+            distanceStatus === 'OPTIMAL' ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-400' :
+            distanceStatus === 'NO_HAND' ? 'bg-slate-900/10 border-slate-800/40 text-slate-400' :
+            distanceStatus === 'OUT_OF_ZONE' ? 'bg-yellow-950/20 border-yellow-500/20 text-yellow-400' :
+            'bg-rose-950/25 border-rose-500/20 text-rose-300'
+          }`}>
+            <div className="mt-0.5 flex-shrink-0">
+              {distanceStatus === 'OPTIMAL' && <CheckCircle2 className="w-3 h-3 text-emerald-400 animate-pulse" />}
+              {distanceStatus === 'NO_HAND' && <Eye className="w-3 h-3 text-slate-500" />}
+              {distanceStatus !== 'OPTIMAL' && distanceStatus !== 'NO_HAND' && <AlertTriangle className="w-3 h-3 text-amber-400 animate-bounce" />}
+            </div>
+            <p className="text-[8.5px] font-bold leading-snug tracking-tight">
+              {feedbackMessage}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

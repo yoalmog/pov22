@@ -25,7 +25,7 @@ export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", mo
     { pcb: "VN", gpio: "GPIO39", labelHe: "חיישן כניסה VN", labelEn: "GPI39 / SENSOR_VN", type: "gpio" },
     { pcb: "34", gpio: "GPIO34", labelHe: "פין כניסה GPI34", labelEn: "GPI34", type: "gpio" },
     { pcb: "35", gpio: "GPIO35", labelHe: "פין כניסה GPI35", labelEn: "GPI35", type: "gpio" },
-    { pcb: "32", gpio: "GPIO32", labelHe: "פין דיגיטלי 32", labelEn: "GPIO32", type: "gpio" },
+    { pcb: "32", gpio: "GPIO32", labelHe: "מיקרופון אנלוגי (ADC 32)", labelEn: "Analog Mic (ADC32)", type: "sensor" },
     { pcb: "33", gpio: "GPIO33", labelHe: "פין דיגיטלי 33", labelEn: "GPIO33", type: "gpio" },
     { pcb: "25", gpio: "GPIO25", labelHe: "פס לדים א' (LED A)", labelEn: "LED Strip A Out", type: "led" },
     { pcb: "26", gpio: "GPIO26", labelHe: "פס לדים ב' (LED B)", labelEn: "LED Strip B Out", type: "led" },
@@ -420,6 +420,10 @@ export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", mo
           <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900">
             <span className="text-blue-400 font-bold font-mono">GPIO 5, 18, 19, 23</span>
             <p className="mt-1 text-slate-300">חיבור כרטיס זיכרון MicroSD (פרוטוקול SPI). משמש לטעינת אנימציות הולוגרמיות בזמן אמת.</p>
+          </div>
+          <div className="bg-slate-950/50 p-2.5 rounded border border-slate-900 col-span-1 sm:col-span-2">
+            <span className="text-pink-400 font-bold font-mono">GPIO 32 (ADC)</span>
+            <p className="mt-1 text-slate-300">כניסת מיקרופון אנלוגי / חיישן שמע (ADC). משמשת לקריאת מתח עוצמת השמע לטובת סנכרון אורות וגרפיקת הולוגרמה לפי המוזיקה בזמן אמת.</p>
           </div>
         </div>
       </div>
