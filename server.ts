@@ -256,9 +256,8 @@ Return ONLY the raw JSON object conforming to the schema.`;
   });
 
   // Determine if we are running in production mode
+  const isProd = process.env.NODE_ENV === "production";
   const distPath = path.join(process.cwd(), 'dist');
-  const hasBuild = fs.existsSync(path.join(distPath, 'index.html'));
-  const isProd = process.env.NODE_ENV === "production" || hasBuild;
 
   // Vite middleware for development
   if (!isProd) {
