@@ -110,6 +110,7 @@ import { WiringGuide } from "./components/WiringGuide";
 import { Esp32Board } from "./components/Esp32Board";
 import { Gauge } from "./components/Gauge";
 import { AppWalkthrough } from "./components/AppWalkthrough";
+import { FirmwareStudio } from "./components/FirmwareStudio";
 import {
   savePresetToDB,
   loadPresetFromDB,
@@ -905,6 +906,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState("controller");
+  const [studioView, setStudioView] = useState<"creative" | "firmware">("creative");
   const [showTour, setShowTour] = useState<boolean>(() => {
     try {
       return localStorage.getItem("holospin_tour_completed") !== "true";
@@ -1596,6 +1598,11 @@ export default function App() {
       motorPin = 6;
       sensorPin = 7;
       displayName = "ESP32-C3";
+    } else if (upperModel.includes("WROOM") || upperModel === "WROOM") {
+      ledPins = "25, 26";
+      motorPin = 12;
+      sensorPin = 27;
+      displayName = "ESP32 WROOM 32D";
     }
 
     setState((p: any) => {
@@ -1648,6 +1655,9 @@ export default function App() {
     } else if (targetModel === "C3") {
       detectedText = `[00:01.800] [DETECTED] Chip: ESP32-C3 (Single-Core RISC-V, Low Power Enabled)`;
       finalModelName = "ESP32-C3";
+    } else if (targetModel === "WROOM") {
+      detectedText = `[00:01.800] [DETECTED] Chip: ESP32 WROOM 32D (Dual-Core Xtensa® LX6, Advanced Wireless Core)`;
+      finalModelName = "ESP32 WROOM 32D";
     } else {
       detectedText = `[00:01.800] [DETECTED] Chip: ESP32 (Classic Dual-Core Xtensa® LX6, Legacy WiFi/BLE)`;
       finalModelName = "ESP32";
@@ -4569,9 +4579,9 @@ void loop() {
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: "Classic", name: "ESP32 Classic", desc: "GPIO 25,26 / 12 / 27" },
-                  { id: "S3", name: "ESP32-S3", desc: "GPIO 15,16 / 17 / 18" },
-                  { id: "C3", name: "ESP32-C3", desc: "GPIO 4,5 / 6 / 7" },
+                  { id: "WROOM", name: "ESP32 WROOM 32D", desc: "Classic / WROOM-32D" },
+                  { id: "S3", name: "ESP32-S3", desc: "Dual Core / 240MHz" },
+                  { id: "C3", name: "ESP32-C3", desc: "RISC-V / Single Core" },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -6279,30 +6289,58 @@ void loop() {
       if (activeTab === "studio") {
         return (
           <div className="px-5 pt-2 pb-28 flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-300">
-            <h3 className="text-[11px] text-slate-400 font-bold tracking-widest uppercase pl-1 text-center font-black">
-              CREATIVE STUDIO / כלי יצירה
-            </h3>
-            <AudioVisualizer onSyncParams={(b, m, h) => {
-              // Send params to device if connected
-              if (isConnected || isBluetoothConnected) {
-                 const payload = { category: "effect", update: { effectParams: { speed: b * 100, hue: Math.floor(h * 360) } } };
-                 if (isBluetoothConnected && activeBleId) {
-                   sendCommand(payload);
-                 } else {
-                   const targetUrl = getDeviceUrl("/control");
-                   safeFetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(console.error);
-                 }
-              }
-            }} />
-            <TextMarquee onFrameUpdate={async (data) => {
-              if (isConnected || isBluetoothConnected) {
-                 // Convert base64 image data to frame and upload
-                 // For now just keep it in UI, user will see the preview
-              }
-            }} />
-            <LivePaint onFrameUpdate={async (data) => {
-               // Same here
-            }} />
+            <div className="flex flex-col gap-4">
+              <h3 className="text-[11px] text-slate-400 font-bold tracking-widest uppercase pl-1 text-center font-black">
+                STUDIO / כלי יצירה וחומרה
+              </h3>
+              
+              <div className="flex bg-[#0c0e15] p-1 rounded-xl border border-slate-800/50 self-center">
+                <button 
+                  onClick={() => setStudioView("creative")}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${studioView === "creative" ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  Creative Effects
+                </button>
+                <button 
+                  onClick={() => setStudioView("firmware")}
+                  className={`px-4 py-2 rounded-lg text-[10px] font-bold uppercase transition-all ${studioView === "firmware" ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  Firmware IDE
+                </button>
+              </div>
+            </div>
+
+            {studioView === "creative" ? (
+              <>
+                <AudioVisualizer onSyncParams={(b, m, h) => {
+                  // Send params to device if connected
+                  if (isConnected || isBluetoothConnected) {
+                     const payload = { category: "effect", update: { effectParams: { speed: b * 100, hue: Math.floor(h * 360) } } };
+                     if (isBluetoothConnected && activeBleId) {
+                       sendCommand(payload);
+                     } else {
+                       const targetUrl = getDeviceUrl("/control");
+                       safeFetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(console.error);
+                     }
+                  }
+                }} />
+                <TextMarquee onFrameUpdate={async (data) => {
+                  if (isConnected || isBluetoothConnected) {
+                     // Convert base64 image data to frame and upload
+                  }
+                }} />
+                <LivePaint onFrameUpdate={async (data) => {
+                   // Same here
+                }} />
+              </>
+            ) : (
+              <div className="h-[500px]">
+                <FirmwareStudio 
+                  onFlash={handleFlashViaOtg}
+                  selectedModel={state.detectedModel || "ESP32 WROOM 32D"}
+                />
+              </div>
+            )}
           </div>
         );
       }

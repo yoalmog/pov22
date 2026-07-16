@@ -32,14 +32,16 @@ export function useHardwareStream(initialDeviceId: string | null) {
       setIsScanning(true);
       setError(null);
       
+      // Ensure BleClient is initialized before scan
+      try { await BleClient.initialize(); } catch (e) {}
+      
       let foundId: string | null = null;
       
-      // Directly request device. This handles both Web (shows browser native dialog) 
-      // and Capacitor (shows native OS dialog). Avoids user-gesture timeouts.
       try {
         const device = await BleClient.requestDevice({
           services: [ESP32_SERVICE],
-          optionalServices: [ESP32_SERVICE]
+          optionalServices: [ESP32_SERVICE],
+          namePrefix: "HoloSpin"
         });
         if (device) {
           foundId = device.deviceId;
@@ -157,13 +159,13 @@ export function useHardwareStream(initialDeviceId: string | null) {
 
       if (shouldRetry && currentAttempt < maxRetries && isActive) {
         currentAttempt++;
-        const delay = Math.pow(2, currentAttempt) * 1000; // Exponential backoff (2s, 4s, 8s, 16s...)
-        setError(`${errMsg} - Retrying in ${delay/1000}s (Attempt ${currentAttempt}/${maxRetries})...`);
+        const delay = Math.pow(1.5, currentAttempt) * 1000; // Slightly faster backoff for better responsiveness
+        setError(`[WROOM-32D] Connection unstable. Retrying in ${Math.round(delay/1000)}s... (Attempt ${currentAttempt}/${maxRetries})`);
         reconnectTimer = setTimeout(() => {
           if (isActive) connect();
         }, delay);
       } else if (isActive) {
-        setError(`Connection failed: ${errMsg}. Ensure BLE & Location services are ON, and you are close to the HoloSpin device.`);
+        setError(`Connection failed after ${maxRetries} attempts. Please restart the HoloSpin WROOM-32D and check your phone's Bluetooth settings.`);
       }
     };
 

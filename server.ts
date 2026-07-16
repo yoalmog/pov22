@@ -285,6 +285,32 @@ Return ONLY the raw JSON object conforming to the schema.`;
     res.send("[SYS] Boot complete\n[WIFI] Connected\n[POV] Frame buffer ready\n[HTTP] Server started on port 80");
   });
 
+  // Simulated Firmware Compilation API
+  app.post("/api/compile", async (req, res) => {
+    try {
+      const { model } = req.body;
+      console.log(`[Compiler] Starting build for ${model}...`);
+      
+      // Simulate compilation process
+      const logs = [
+        `[00:00.100] Resolving dependencies...`,
+        `[00:00.500] Using board: ${model}`,
+        `[00:01.200] Compiling main.ino...`,
+        `[00:02.500] Compiling libraries...`,
+        `[00:03.800] Linking binaries...`,
+        `[00:04.500] Build SUCCESS. Size: 1.2MB (45% of flash)`,
+        `[00:04.800] Ready for upload.`
+      ];
+
+      // Simulate a bit of delay
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      res.json({ status: "success", logs, binaryPath: "/firmware/build/firmware.bin" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Compilation failed" });
+    }
+  });
+
   // Determine if we are running in production mode
   const isProd = process.env.NODE_ENV === "production";
   const distPath = path.join(process.cwd(), 'dist');
