@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Loader2, Send, Cpu, Copy, Check } from "lucide-react";
+import { PlatformGuideModal } from "./PlatformGuideModal";
 
 interface Props {
   onEffectGenerated: (code: string, js: string) => void;
@@ -14,6 +15,7 @@ export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
   const [generatedEffect, setGeneratedEffect] = useState<{ cpp: string; js: string; prompt: string } | null>(null);
   const [codeTab, setCodeTab] = useState<"cpp" | "js">("cpp");
   const [copied, setCopied] = useState<boolean>(false);
+  const [showPlatformGuide, setShowPlatformGuide] = useState<boolean>(false);
 
   useEffect(() => {
     // Check if Chrome's local window.ai is available
@@ -170,8 +172,12 @@ Format: {"cpp": "...", "js": "..."}`;
             if (isLocalAiAvailable) {
               setEngine("chrome");
             } else {
-              setError("Chrome window.ai is not available in this browser. To use Chrome Nano, enable Gemini Nano in chrome://flags.");
-              setTimeout(() => setError(null), 5000);
+              if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                setShowPlatformGuide(true);
+              } else {
+                setError("Chrome window.ai is not available in this browser. To use Chrome Nano, enable Gemini Nano in chrome://flags.");
+                setTimeout(() => setError(null), 5000);
+              }
             }
           }}
           className={`py-2 px-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all flex flex-col items-center gap-1.5 ${
@@ -290,6 +296,9 @@ Format: {"cpp": "...", "js": "..."}`;
             💡 <strong className="text-slate-400">Integration:</strong> The 3D browser simulation has auto-loaded the <strong>JS code</strong> and is displaying it now. The <strong>C++ code</strong> has also been automatically injected into the <strong className="text-emerald-400">Firmware Setup</strong> download bundle for your ESP32 microcontroller!
           </p>
         </div>
+      )}
+          {showPlatformGuide && (
+        <PlatformGuideModal onClose={() => setShowPlatformGuide(false)} />
       )}
     </div>
   );

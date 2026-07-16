@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Download, CheckCircle, Trash2, ArrowLeft, Loader2, RefreshCw, AlertTriangle, HelpCircle, FileText } from "lucide-react";
+import { Cpu, Download, CheckCircle, Trash2, ArrowLeft, Loader2, RefreshCw, AlertTriangle, HelpCircle, FileText, Smartphone } from "lucide-react";
+import { PlatformGuideModal } from "./PlatformGuideModal";
 
 interface AiModelInstallerProps {
   onBack: () => void;
@@ -13,6 +14,7 @@ export const AiModelInstaller: React.FC<AiModelInstallerProps> = ({ onBack }) =>
   const [diagnosticResult, setDiagnosticResult] = useState<string | null>(null);
   const [isTestingChromeAi, setIsTestingChromeAi] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPlatformGuide, setShowPlatformGuide] = useState(false);
 
   const modelUrl = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
   const cacheName = "holospin-ai-models";
@@ -273,7 +275,7 @@ export const AiModelInstaller: React.FC<AiModelInstallerProps> = ({ onBack }) =>
                 Open a new browser tab and enter <code className="text-cyan-400 bg-slate-900 px-1 py-0.5 rounded">chrome://flags</code> in the search bar.
               </li>
               <li>
-                Search for <strong className="text-slate-200">Prompt API</strong> and set it to <strong className="text-emerald-400">Enabled</strong>.
+                Search for <strong className="text-slate-200">Prompt API for Gemini Nano</strong> (on Desktop) or <strong className="text-slate-200">Prompt API for Gemini Nano with Multimodal Input</strong> (on Mobile) and set it to <strong className="text-emerald-400">Enabled</strong>.
               </li>
               <li>
                 Search for <strong className="text-slate-200">Enables optimization guide on device</strong> and select <strong className="text-emerald-400">Enabled BypassperfRequirement</strong>.
@@ -288,6 +290,16 @@ export const AiModelInstaller: React.FC<AiModelInstallerProps> = ({ onBack }) =>
                 Refresh this application once the download finishes!
               </li>
             </ol>
+            
+            {/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) && (
+              <button 
+                onClick={() => setShowPlatformGuide(true)}
+                className="mt-2 w-full py-2.5 px-4 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-[9.5px] font-bold tracking-widest text-indigo-400 hover:bg-indigo-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                READ MOBILE PLATFORM GUIDE
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -308,7 +320,6 @@ export const AiModelInstaller: React.FC<AiModelInstallerProps> = ({ onBack }) =>
                 </>
               )}
             </button>
-
             {diagnosticResult && (
               <div className="bg-slate-950/60 border border-slate-800/80 p-3.5 rounded-xl flex flex-col gap-1.5">
                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
@@ -322,6 +333,10 @@ export const AiModelInstaller: React.FC<AiModelInstallerProps> = ({ onBack }) =>
           </div>
         )}
       </div>
+      
+      {showPlatformGuide && (
+        <PlatformGuideModal onClose={() => setShowPlatformGuide(false)} />
+      )}
     </div>
   );
 };

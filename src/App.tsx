@@ -725,10 +725,11 @@ export default function App() {
 
   const getDeviceUrl = (path: string) => {
     const isCapacitor = !!(window as any).Capacitor;
-    if (state.wifi.mode === "AP") return `http://192.168.4.1${path}`;
+    const isPreview = window.location.protocol === 'https:' && window.location.hostname !== "192.168.4.1";
+    if (state.wifi.mode === "AP") return isPreview ? path : `http://192.168.4.1${path}`;
     if (state.wifi.ip && state.wifi.ip.trim() !== "") {
       const ipStr = state.wifi.ip.trim();
-      return ipStr.startsWith("http") ? `${ipStr}${path}` : `http://${ipStr}${path}`;
+      return isPreview ? path : (ipStr.startsWith("http") ? `${ipStr}${path}` : `http://${ipStr}${path}`);
     }
     return path;
   };
@@ -6213,8 +6214,12 @@ void loop() {
       </AnimatePresence>
 
       {toastMessage && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border border-[#22c55e]/50 text-[#22c55e] px-4 py-3 rounded-xl shadow-[0_0_20px_rgba(34,197,94,0.35)] text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3">
-          <CheckCircle2 className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border px-4 py-3 rounded-xl text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3 ${toastMessage.toLowerCase().includes("error") || toastMessage.toLowerCase().includes("שגיאה") || toastMessage.toLowerCase().includes("failed") ? "border-rose-500/50 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.35)]" : "border-[#22c55e]/50 text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.35)]"}`}>
+          {toastMessage.toLowerCase().includes("error") || toastMessage.toLowerCase().includes("שגיאה") || toastMessage.toLowerCase().includes("failed") ? (
+             <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+          ) : (
+             <CheckCircle2 className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
+          )}
           <span className="leading-relaxed">{toastMessage}</span>
         </div>
       )}
