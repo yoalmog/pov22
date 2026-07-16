@@ -1,6 +1,6 @@
 ext {
     kotlin_version = "2.2.0"
-    minSdkVersion = 24
+    minSdkVersion = 26
     compileSdkVersion = 35
     targetSdkVersion = 35
     androidxActivityVersion = '1.10.1'
