@@ -96,6 +96,7 @@ import {
 } from "lucide-react";
 import { GalaxyBackground } from "./components/GalaxyBackground";
 import { HologramSimulator } from "./components/HologramSimulator";
+import { AiEffectPreview } from "./components/AiEffectPreview";
 import { AudioVisualizer } from "./components/AudioVisualizer";
 import { LivePaint } from "./components/LivePaint";
 import { TextMarquee } from "./components/TextMarquee";
@@ -108,6 +109,19 @@ import { PinSelectorPanel } from "./components/PinSelectorPanel";
 import { WiringGuide } from "./components/WiringGuide";
 import { Esp32Board } from "./components/Esp32Board";
 import { Gauge } from "./components/Gauge";
+import { AppWalkthrough } from "./components/AppWalkthrough";
+import {
+  savePresetToDB,
+  loadPresetFromDB,
+  loadAllPresetsFromDB,
+  saveAllPresetsToDB,
+  clearAllPresetsInDB,
+  saveMediaToDB,
+  loadMediaFromDB,
+  loadAllMediaFromDB,
+  deleteMediaFromDB,
+  clearAllMediaInDB
+} from "./lib/indexedDbCache";
 import planetImg from "./assets/images/hologram_planet_1779776225377.png";
 import galaxy0 from "./assets/images/galaxy_background_1779780757373.png";
 import galaxy1 from "./assets/images/hd_vivid_galaxy_1779780978111.png";
@@ -891,6 +905,13 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState("controller");
+  const [showTour, setShowTour] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("holospin_tour_completed") !== "true";
+    } catch (e) {
+      return false;
+    }
+  });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -972,8 +993,24 @@ export default function App() {
   }, [bgImageId]);
 
   const [activeEffect, setActiveEffect] = useState(() => safeGetLocal("holospin_activeEffect") || "rainbow");
-  const [aiEffectCode, setAiEffectCode] = useState<string | null>(null);
-  const [aiEffectJs, setAiEffectJs] = useState<string | null>(null);
+  const [aiEffectPrompt, setAiEffectPrompt] = useState<string>(() => safeGetLocal("holospin_aiEffectPrompt") || "");
+  const [aiEffectCode, setAiEffectCode] = useState<string | null>(() => safeGetLocal("holospin_aiEffectCode") || null);
+  const [aiEffectJs, setAiEffectJs] = useState<string | null>(() => safeGetLocal("holospin_aiEffectJs") || null);
+
+  useEffect(() => {
+    safeSaveLocal("holospin_aiEffectPrompt", aiEffectPrompt);
+  }, [aiEffectPrompt]);
+
+  useEffect(() => {
+    if (aiEffectCode) safeSaveLocal("holospin_aiEffectCode", aiEffectCode);
+    else safeRemoveLocal("holospin_aiEffectCode");
+  }, [aiEffectCode]);
+
+  useEffect(() => {
+    if (aiEffectJs) safeSaveLocal("holospin_aiEffectJs", aiEffectJs);
+    else safeRemoveLocal("holospin_aiEffectJs");
+  }, [aiEffectJs]);
+
   const [colorMode, setColorMode] = useState<"solid" | "random">(() => (safeGetLocal("holospin_colorMode") as any) || "solid");
   const [logoUrl, setLogoUrl] = useState<string | null>(() => safeGetLocal("holospin_logoUrl") || null);
 
@@ -1066,6 +1103,8 @@ export default function App() {
     }
   });
   const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
+  const [pendingSaveSlot, setPendingSaveSlot] = useState<string | null>(null);
+  const [presetNameInput, setPresetNameInput] = useState<string>("");
 
   const [gestureMode, setGestureMode] = useState(false);
   const [commandQueue, setCommandQueue] = useState<any[]>([]);
@@ -1224,6 +1263,62 @@ export default function App() {
   useEffect(() => {
     safeSaveLocal("holospin_schedules", JSON.stringify(schedules));
   }, [schedules]);
+
+  // Load presets and media references from IndexedDB on startup
+  useEffect(() => {
+    const loadFromIDBOnStartup = async () => {
+      // 1. Load Presets
+      try {
+        const idbPresets = await loadAllPresetsFromDB();
+        if (idbPresets && Object.keys(idbPresets).length > 0) {
+          setPresets(prev => {
+            const merged = { ...prev };
+            Object.entries(idbPresets).forEach(([key, val]) => {
+              if (val) {
+                merged[key] = val;
+              }
+            });
+            return merged;
+          });
+          console.log("Loaded cached presets from IndexedDB");
+        }
+      } catch (err) {
+        console.error("Failed to load presets from IndexedDB startup:", err);
+      }
+
+      // 2. Load custom active logo if it's stored in IndexedDB
+      const savedLogo = safeGetLocal("holospin_logoUrl");
+      if (savedLogo && savedLogo.startsWith("indexeddb:")) {
+        const key = savedLogo.replace("indexeddb:", "");
+        try {
+          const cached = await loadMediaFromDB(key);
+          if (cached && cached.url) {
+            setLogoUrl(cached.url);
+            console.log(`Loaded custom active logo from IndexedDB: ${cached.name}`);
+          }
+        } catch (e) {
+          console.error("Failed to load active logo from IndexedDB:", e);
+        }
+      }
+
+      // 3. Load custom synth video if it's stored in IndexedDB
+      const savedVideo = safeGetLocal("synthVideoUrl");
+      if (savedVideo && savedVideo.startsWith("indexeddb:")) {
+        const key = savedVideo.replace("indexeddb:", "");
+        try {
+          const cached = await loadMediaFromDB(key);
+          if (cached && cached.url) {
+            setSynthVideoUrl(cached.url);
+            console.log(`Loaded custom active video from IndexedDB: ${cached.name}`);
+          }
+        } catch (e) {
+          console.error("Failed to load active video from IndexedDB:", e);
+        }
+      }
+    };
+
+    loadFromIDBOnStartup();
+  }, []);
 
   const { 
     streamData, 
@@ -1414,6 +1509,11 @@ export default function App() {
     setTimeout(() => setIsApplyingPreset(false), 800);
 
     if (entry.activeEffect) setActiveEffect(entry.activeEffect);
+    if (entry.activeEffect === "ai_custom") {
+      if (entry.aiEffectPrompt) setAiEffectPrompt(entry.aiEffectPrompt);
+      if (entry.aiEffectCode) setAiEffectCode(entry.aiEffectCode);
+      if (entry.aiEffectJs) setAiEffectJs(entry.aiEffectJs);
+    }
     if (typeof entry.motorSpeed === 'number') setMotorSpeed(entry.motorSpeed);
     if (typeof entry.brightness === 'number') setBrightness(entry.brightness);
     if (typeof entry.effectSpeedRate === 'number' && entry.effectSpeedRate > 0) setEffectSpeedRate(entry.effectSpeedRate);
@@ -1670,6 +1770,10 @@ export default function App() {
         "bgImageId"
       ];
       keysToRemove.forEach(k => safeRemoveLocal(k));
+
+      // Clear IndexedDB cache as well
+      clearAllPresetsInDB().catch(err => console.error("Failed to clear presets DB on factory reset:", err));
+      clearAllMediaInDB().catch(err => console.error("Failed to clear media DB on factory reset:", err));
 
       // Reset States
       setActiveEffect("rainbow");
@@ -1997,6 +2101,9 @@ export default function App() {
   }, [calibrationStage]);
 
   const fetchSDCardFiles = async () => {
+    let baseFiles: any[] = [];
+    let isMounted = false;
+    
     try {
       const isLocalHost = window.location.hostname === "192.168.4.1";
       const baseUrl = (state.wifi.mode === "AP" || isLocalHost) ? "http://192.168.4.1" : "";
@@ -2004,49 +2111,62 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to read from ESP32 SD Card");
       const files = await res.json();
       
-      const mappedFiles = files.map((f: any) => ({
+      baseFiles = files.map((f: any) => ({
         name: f.name,
         size: f.size || "Unknown KB",
         type: f.type || (f.name.toLowerCase().endsWith(".mp4") ? "video" : "image"),
         path: f.path || `${baseUrl}/sd/${f.name}`,
         selected: f.selected !== undefined ? f.selected : true
       }));
-      
-      setState((p: any) => ({
-        ...p,
-        storage: {
-          ...p.storage,
-          mounted: true,
-          files: mappedFiles
-        }
-      }));
+      isMounted = true;
     } catch (err) {
       console.error("Failed to read SD Card files:", err);
       // Fallback to simulated files if we're not on the actual hardware IP
       if (window.location.hostname !== "192.168.4.1") {
-        setState((p: any) => ({
-          ...p,
-          storage: {
-            ...p.storage,
-            mounted: true,
-            files: [
-              { name: "butterfly_nebula.png", size: "128 KB", type: "image", path: "/images/butterfly_nebula.png", selected: true },
-              { name: "hologram_planet.png", size: "256 KB", type: "image", path: "/images/hologram_planet.png", selected: true },
-              { name: "galaxy_big_bang.mp4", size: "1.2 MB", type: "video", path: "/videos/galaxy_big_bang.mp4", selected: true }
-            ]
-          }
-        }));
+        baseFiles = [
+          { name: "butterfly_nebula.png", size: "128 KB", type: "image", path: "/images/butterfly_nebula.png", selected: true },
+          { name: "hologram_planet.png", size: "256 KB", type: "image", path: "/images/hologram_planet.png", selected: true },
+          { name: "galaxy_big_bang.mp4", size: "1.2 MB", type: "video", path: "/videos/galaxy_big_bang.mp4", selected: true }
+        ];
+        isMounted = true;
       } else {
         setToastMessage("שגיאה בקריאת הקבצים: וודא חיבור למכשיר / Error: Check device connection");
-        setState((p: any) => ({
-          ...p,
-          storage: {
-            ...p.storage,
-            mounted: false
-          }
-        }));
+        isMounted = false;
       }
     }
+
+    // Fallback/Redundancy: Merge custom media files from local IndexedDB cache
+    try {
+      const idbMediaList = await loadAllMediaFromDB();
+      // Filter out active config keys (e.g. custom_logo and custom_video)
+      const filteredIDB = idbMediaList.filter(media => media.key !== "custom_logo" && media.key !== "custom_video");
+      const formattedIDB = filteredIDB.map(media => ({
+        name: media.name,
+        size: "Cached in IDB",
+        type: media.type.startsWith("video") ? "video" : "image",
+        path: media.url,
+        physicalUri: `indexeddb:${media.key}`,
+        selected: false,
+        idbKey: media.key
+      }));
+      
+      formattedIDB.forEach(newFile => {
+        if (!baseFiles.some(f => f.name === newFile.name)) {
+          baseFiles.push(newFile);
+        }
+      });
+    } catch (idbErr) {
+      console.error("Failed to load IndexedDB cached files in fetchSDCardFiles:", idbErr);
+    }
+
+    setState((p: any) => ({
+      ...p,
+      storage: {
+        ...p.storage,
+        mounted: isMounted,
+        files: baseFiles
+      }
+    }));
   };
 
   const handleWriteFileToESP32 = async (filename: string, content: string) => {
@@ -2217,7 +2337,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [motorSpeed, brightness, effectSpeedRate, effectScale, effectComplexity, activeEffect, logoRotation, povText, isSyncEnabled]);
 
-  const handleSavePreset = (slotId: string) => {
+  const handleSavePreset = (slotId: string, customName?: string) => {
     const freshPreset = {
       activeEffect,
       motorSpeed,
@@ -2231,12 +2351,18 @@ export default function App() {
       logoTintColor,
       useLogoTint,
       povTextAnimation,
+      aiEffectPrompt: activeEffect === "ai_custom" ? aiEffectPrompt : undefined,
+      aiEffectCode: activeEffect === "ai_custom" ? aiEffectCode : undefined,
+      aiEffectJs: activeEffect === "ai_custom" ? aiEffectJs : undefined,
+      name: customName || `פרופיל ${slotId} / Slot ${slotId}`,
       savedAt: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
     };
 
     const updated = { ...presets, [slotId]: freshPreset };
     setPresets(updated);
     safeSaveLocal("holospin_presets", JSON.stringify(updated));
+    // Fallback sync to IndexedDB
+    saveAllPresetsToDB(updated).catch(err => console.error("Failed to save presets to IndexedDB:", err));
   };
 
   const handleDeletePreset = (slotId: string) => {
@@ -2244,6 +2370,8 @@ export default function App() {
       const updated = { ...presets, [slotId]: null };
       setPresets(updated);
       safeSaveLocal("holospin_presets", JSON.stringify(updated));
+      // Fallback sync to IndexedDB
+      saveAllPresetsToDB(updated).catch(err => console.error("Failed to update presets in IndexedDB after delete:", err));
       setToastMessage(`Profile ${slotId} deleted / פרופיל נמחק בהצלחה`);
     }
   };
@@ -2285,6 +2413,8 @@ export default function App() {
           }
           setPresets(normalized);
           safeSaveLocal("holospin_presets", JSON.stringify(normalized));
+          // Fallback sync to IndexedDB
+          saveAllPresetsToDB(normalized).catch(err => console.error("Failed to save imported presets to IndexedDB:", err));
           setToastMessage("Presets imported successfully! / פרופילים יובאו בהצלחה");
         } else {
           alert("קובץ לא תקין / Invalid presets file format.");
@@ -2508,7 +2638,7 @@ export default function App() {
     const battPercent = Math.max(0, Math.min(100, ((battVolts - 9.6) / (12.6 - 9.6)) * 100));
 
     const statusIndicator = (
-      <div className="flex items-center gap-1.5 min-[380px]:gap-2 sm:gap-3 select-none">
+      <div id="tour-sync-group" className="flex items-center gap-1.5 min-[380px]:gap-2 sm:gap-3 select-none">
         {/* Battery Diagnostics Pill */}
         <div 
           className="flex items-center gap-1 min-[380px]:gap-1.5 bg-slate-900/60 border border-slate-800 rounded-full px-1.5 min-[380px]:px-2.5 h-7 min-[380px]:h-8 backdrop-blur-md shadow-inner group relative cursor-help"
@@ -2630,7 +2760,16 @@ export default function App() {
           >
             <ChevronLeft className="w-6 h-6 min-[360px]:w-8 min-[360px]:h-8" />
           </button>
-          {statusIndicator}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTour(true)}
+              className="w-7 h-7 min-[380px]:w-8 min-[380px]:h-8 rounded-full flex items-center justify-center bg-slate-900/60 border border-slate-800 text-slate-400 hover:text-[#00b4d8] hover:border-[#00b4d8]/40 transition active:scale-95"
+              title="App Walkthrough / סיור במערכת"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+            {statusIndicator}
+          </div>
         </header>
       );
     }
@@ -2643,7 +2782,16 @@ export default function App() {
         >
           <Menu className="w-5.5 h-5.5 min-[360px]:w-7 min-[360px]:h-7" />
         </button>
-        {statusIndicator}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTour(true)}
+            className="w-7 h-7 min-[380px]:w-8 min-[380px]:h-8 rounded-full flex items-center justify-center bg-slate-900/60 border border-slate-800 text-slate-400 hover:text-[#00b4d8] hover:border-[#00b4d8]/40 transition active:scale-95"
+            title="App Walkthrough / סיור במערכת"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+          {statusIndicator}
+        </div>
       </header>
     );
   };
@@ -3739,7 +3887,7 @@ void loop() {
           </div>
 
           {/* Firmware Flashing Section */}
-          <div className="border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-5 flex flex-col gap-4">
+          <div id="tour-firmware" className="border border-slate-800/80 rounded-2xl bg-[#0c0e15] p-5 flex flex-col gap-4">
             <h4 className="text-white font-bold text-sm flex items-center gap-2">
               <Upload className="w-5 h-5 text-emerald-400" />
               Firmware Flashing (No Computer Required)
@@ -4084,7 +4232,7 @@ void loop() {
                           <div className="flex flex-col flex-1">
                             <div className="flex items-center gap-2">
                               <span className={`text-[13px] font-bold ${isPresetActive ? 'text-[#00b4d8]' : 'text-slate-200'}`}>
-                                פרופיל {slotId} / Slot {slotId}
+                                {saved?.name || `פרופיל ${slotId} / Slot ${slotId}`}
                               </span>
                               {isPresetActive && (
                                 <span className="text-[7px] font-black bg-[#00b4d8] text-[#0c0e15] px-1 rounded-sm tracking-tighter uppercase animate-pulse">ACTIVE</span>
@@ -4106,7 +4254,10 @@ void loop() {
                             )}
                             <div className="h-8 w-[1px] bg-slate-800/50 mx-1"></div>
                             <button
-                              onClick={() => handleSavePreset(slotId)}
+                              onClick={() => {
+                                setPendingSaveSlot(slotId);
+                                setPresetNameInput(saved?.name || `Slot ${slotId}`);
+                              }}
                               title="Save Current State / שמור נוכחי"
                               className="p-3 border border-slate-700 rounded-xl hover:text-sky-400 hover:border-sky-400 text-slate-400 transition-all flex items-center justify-center bg-slate-900/40 hover:scale-105 active:scale-95 cursor-pointer"
                             >
@@ -4626,6 +4777,19 @@ void loop() {
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                             <button
                               onClick={async () => {
+                                // If it's an IndexedDB file, handle deletion locally
+                                if (file.physicalUri?.startsWith("indexeddb:") || file.idbKey) {
+                                  const key = file.idbKey || file.physicalUri.replace("indexeddb:", "");
+                                  try {
+                                    await deleteMediaFromDB(key);
+                                    setToastMessage(`הקובץ ${file.name} נמחק מ-IndexedDB!`);
+                                  } catch (dbErr) {
+                                    console.error("Failed to delete from IndexedDB:", dbErr);
+                                  }
+                                  updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
+                                  return;
+                                }
+
                                 try {
                                   setToastMessage(`מוחק את ${file.name}... / Deleting ${file.name}...`);
                                   const isLocalHost = window.location.hostname === "192.168.4.1";
@@ -4729,6 +4893,19 @@ void loop() {
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                             <button
                               onClick={async () => {
+                                // If it's an IndexedDB file, handle deletion locally
+                                if (file.physicalUri?.startsWith("indexeddb:") || file.idbKey) {
+                                  const key = file.idbKey || file.physicalUri.replace("indexeddb:", "");
+                                  try {
+                                    await deleteMediaFromDB(key);
+                                    setToastMessage(`הקובץ ${file.name} נמחק מ-IndexedDB!`);
+                                  } catch (dbErr) {
+                                    console.error("Failed to delete from IndexedDB:", dbErr);
+                                  }
+                                  updateState("storage", "files", (state.storage?.files || []).filter((f: any) => f.name !== file.name));
+                                  return;
+                                }
+
                                 try {
                                   setToastMessage(`מוחק את ${file.name}... / Deleting ${file.name}...`);
                                   const isLocalHost = window.location.hostname === "192.168.4.1";
@@ -4897,8 +5074,28 @@ void loop() {
                                 }));
                                 setToastMessage(`קובץ ${file.name} נשמר בהצלחה לאחסון המכשיר!`);
                               } catch (fsErr: any) {
-                                console.error("Fs write failed:", fsErr);
-                                setToastMessage(`שגיאה בשמירת הקובץ: ${fsErr.message || fsErr}`);
+                                console.error("Fs write failed, falling back to IndexedDB local cache...", fsErr);
+                                setToastMessage("מערכת הקבצים לא זמינה, שומר ב-IndexedDB... / Filesystem error, caching in IndexedDB...");
+                                try {
+                                  const mediaKey = `media_${Date.now()}_${file.name}`;
+                                  await saveMediaToDB(mediaKey, file, file.name);
+                                  const localUrl = URL.createObjectURL(file);
+                                  const newFile = {
+                                    name: file.name,
+                                    size: (file.size / 1024).toFixed(0) + " KB (IDB Cached)",
+                                    type: uploadDest,
+                                    path: localUrl,
+                                    physicalUri: `indexeddb:${mediaKey}`,
+                                    selected: true,
+                                    idbKey: mediaKey
+                                  };
+                                  const newFiles = [...(state.storage?.files || []), newFile];
+                                  updateState("storage", "files", newFiles);
+                                  setToastMessage("קובץ נשמר מקומית ב-IndexedDB ונרשם להצגה! / File saved locally in IndexedDB!");
+                                } catch (idbErr) {
+                                  console.error("IndexedDB storage failed:", idbErr);
+                                  setToastMessage(`שגיאה בשמירת הקובץ: ${fsErr.message || fsErr}`);
+                                }
                               }
                             };
                             reader.readAsDataURL(file);
@@ -4931,10 +5128,33 @@ void loop() {
                             };
                             const newFiles = [...(state.storage?.files || []), newFile];
                             updateState("storage", "files", newFiles);
+                            // Backup upload in the background
+                            const backupKey = `media_${Date.now()}_${file.name}`;
+                            saveMediaToDB(backupKey, file, file.name).catch(e => console.warn("Could not back up to IDB:", e));
                             setToastMessage(`קובץ ${file.name} הועלה בהצלחה ונרשם להקרנה!`);
                           } catch (err) {
-                            console.error(err);
-                            setToastMessage("שגיאה בהעלאת הקובץ / Upload error");
+                            console.error("Server upload failed, falling back to IndexedDB local cache...", err);
+                            setToastMessage("שרת לא זמין, שומר בזיכרון המקומי... / Server offline, caching locally in IndexedDB...");
+                            try {
+                              const mediaKey = `media_${Date.now()}_${file.name}`;
+                              await saveMediaToDB(mediaKey, file, file.name);
+                              const localUrl = URL.createObjectURL(file);
+                              const newFile = {
+                                name: file.name,
+                                size: (file.size / 1024).toFixed(0) + " KB (IDB Cached)",
+                                type: uploadDest,
+                                path: localUrl,
+                                physicalUri: `indexeddb:${mediaKey}`,
+                                selected: true,
+                                idbKey: mediaKey
+                              };
+                              const newFiles = [...(state.storage?.files || []), newFile];
+                              updateState("storage", "files", newFiles);
+                              setToastMessage("קובץ נשמר מקומית ב-IndexedDB ונרשם להצגה! / File saved locally in IndexedDB!");
+                            } catch (idbErr) {
+                              console.error("IndexedDB storage failed:", idbErr);
+                              setToastMessage("שגיאה בהעלאת הקובץ / Upload error");
+                            }
                           }
                         }
                       }
@@ -5452,10 +5672,22 @@ void loop() {
                            if (!res.ok) throw new Error("Upload failed");
                            const data = await res.json();
                            setLogoUrl(data.url);
+                           // Back up to IndexedDB
+                           saveMediaToDB("custom_logo", file, file.name).catch(e => console.warn("Could not back up custom logo:", e));
                            setToastMessage(`תמונה הועלתה בהצלחה! / Image uploaded!`);
                          } catch (err) {
-                           console.error(err);
-                           setToastMessage("שגיאה בהעלאה / Upload failed");
+                           console.error("Server upload failed, falling back to IndexedDB local cache...", err);
+                           setToastMessage("שרת לא זמין, שומר בזיכרון המקומי... / Server offline, caching locally in IndexedDB...");
+                           try {
+                             await saveMediaToDB("custom_logo", file, file.name);
+                             const localUrl = URL.createObjectURL(file);
+                             setLogoUrl(localUrl);
+                             safeSaveLocal("holospin_logoUrl", "indexeddb:custom_logo");
+                             setToastMessage("תמונה נשמרה מקומית ב-IndexedDB! / Image saved locally in IndexedDB!");
+                           } catch (idbErr: any) {
+                             console.error("IndexedDB save failed:", idbErr);
+                             setToastMessage("שגיאה בהעלאה / Upload failed");
+                           }
                          }
                       }
                     }}
@@ -5550,10 +5782,22 @@ void loop() {
                           const data = await res.json();
                           setSynthVideoUrl(data.url);
                           safeSaveLocal("synthVideoUrl", data.url);
+                          // Back up to IndexedDB
+                          saveMediaToDB("custom_video", file, file.name).catch(e => console.warn("Could not back up custom video:", e));
                           setToastMessage(`סרטון הועלה בהצלחה! / Video uploaded!`);
                         } catch (err) {
-                           console.error(err);
-                           setToastMessage("שגיאה בהעלאה / Upload failed");
+                           console.error("Server upload failed, falling back to IndexedDB local cache...", err);
+                           setToastMessage("שרת לא זמין, שומר בזיכרון המקומי... / Server offline, caching locally in IndexedDB...");
+                           try {
+                             await saveMediaToDB("custom_video", file, file.name);
+                             const localUrl = URL.createObjectURL(file);
+                             setSynthVideoUrl(localUrl);
+                             safeSaveLocal("synthVideoUrl", "indexeddb:custom_video");
+                             setToastMessage("סרטון נשמר מקומית ב-IndexedDB! / Video saved locally in IndexedDB!");
+                           } catch (idbErr: any) {
+                             console.error("IndexedDB save failed:", idbErr);
+                             setToastMessage("שגיאה בהעלאה / Upload failed");
+                           }
                         }
                       }
                     }}
@@ -5744,6 +5988,7 @@ void loop() {
             <div className="w-full max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-center my-8">
               <div className="flex justify-center items-center w-full max-w-[280px] aspect-square mx-auto relative">
                 <motion.div
+                  id="tour-simulator"
                   className={`w-full h-full rounded-full border-[2px] bg-[#050608] flex items-center justify-center overflow-hidden relative transition-all duration-500 ${
                     activeEffect === "fire" 
                       ? "border-[#f97316] shadow-[0_0_50px_rgba(249,115,22,0.4)] animate-fire-glow-preview" 
@@ -5771,6 +6016,8 @@ void loop() {
                     kaleidoLines={kaleidoLines}
                     kaleidoMorphSpeed={kaleidoMorphSpeed}
                     flameIntensity={flameIntensity}
+                    aiEffectJs={aiEffectJs}
+                    aiEffectCode={aiEffectCode}
                   />
                   <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent rounded-full pointer-events-none"></div>
                   <div className="absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.8)] pointer-events-none rounded-full"></div>
@@ -5819,6 +6066,7 @@ void loop() {
 
             <div className="flex justify-center -mt-4 mb-4">
               <button
+                id="tour-gesture-btn"
                 onClick={() => setGestureMode(!gestureMode)}
                 className={`flex items-center gap-3 px-6 py-4 rounded-2xl border transition-all active:scale-95 ${
                   gestureMode 
@@ -5919,9 +6167,10 @@ void loop() {
 
             <section className="mt-4">
               <AiEffectStudio 
-                onEffectGenerated={(code, js) => {
+                onEffectGenerated={(code, js, prompt) => {
                   setAiEffectCode(code);
                   setAiEffectJs(js);
+                  setAiEffectPrompt(prompt);
                   setActiveEffect("ai_custom");
                 }} 
               />
@@ -6153,12 +6402,16 @@ void loop() {
   }
 
   return (
-    <div className={`bg-[#040609] min-h-screen text-text-primary font-sans w-full max-w-md mx-auto shadow-2xl relative overflow-x-hidden flex flex-col antialiased transition-all duration-500`}
+    <div className={`bg-transparent min-h-screen text-text-primary font-sans w-full max-w-md mx-auto shadow-2xl relative overflow-x-hidden flex flex-col antialiased transition-all duration-500`}
          style={{ 
            boxShadow: handInFrame 
              ? `inset 0 0 ${20 * handConfidence}px rgba(16, 185, 129, ${0.4 * handConfidence})` 
              : 'none'
          }}>
+      <GalaxyBackground bgImageId={bgImageId} />
+      {/* Slate-colored semi-translucent dark masking cover for legibility */}
+      <div className="absolute inset-0 bg-slate-950/85 pointer-events-none z-0"></div>
+
       <AnimatePresence>
         {showPermissions && (
           <PermissionsManager onComplete={handlePermissionsComplete} />
@@ -6660,6 +6913,136 @@ void loop() {
         </>
       )}
 
+      {pendingSaveSlot !== null && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" 
+            onClick={() => setPendingSaveSlot(null)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-[#090a10] border border-slate-800/80 rounded-3xl p-6 z-[110] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-slate-800/60 pb-3">
+              <Save className="w-5 h-5 text-sky-400" />
+              <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                Save Preset / שמירת פרופיל
+              </h3>
+            </div>
+            
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Save current settings, patterns, and dynamic active parameters into <strong>Profile Slot {pendingSaveSlot}</strong>.
+            </p>
+
+            {/* Custom Preset Name Input */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black tracking-wider text-slate-500 uppercase">
+                Preset Label / שם הפרופיל
+              </label>
+              <input
+                type="text"
+                value={presetNameInput}
+                onChange={(e) => setPresetNameInput(e.target.value)}
+                placeholder={`Slot ${pendingSaveSlot}`}
+                className="bg-slate-950/80 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500/50 transition-colors"
+              />
+            </div>
+
+            {/* Simulated Live Hologram spinning preview */}
+            <div className="bg-slate-950/60 border border-slate-900 rounded-2xl p-4 flex flex-col gap-3 items-center justify-center">
+              <span className="text-[8px] font-black text-slate-500 tracking-wider uppercase self-start flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
+                Live Hologram simulation / סימולציה חיה
+              </span>
+              
+              <div className="relative w-40 h-40 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-[0_0_20px_rgba(14,165,233,0.1)]">
+                {/* Micro spinning layout for live preview */}
+                <HologramSimulator
+                  effect={activeEffect}
+                  speed={motorSpeed}
+                  brightness={brightness}
+                  customColor={logoTintColor}
+                  logoUrl={logoUrl}
+                  povText={povText}
+                  logoRotation={logoRotation}
+                  logoTintColor={logoTintColor}
+                  povTextAnimation={povTextAnimation}
+                  effectSpeedRate={effectSpeedRate}
+                  effectScale={effectScale}
+                  effectComplexity={effectComplexity}
+                  videoUrl={synthVideoUrl}
+                  aiEffectJs={aiEffectJs}
+                  aiEffectCode={aiEffectCode}
+                />
+              </div>
+
+              {/* AI Effect Preview static frame simulation */}
+              {activeEffect === "ai_custom" && aiEffectPrompt && (
+                <div className="bg-slate-950/40 border border-indigo-950/40 rounded-2xl p-3 flex flex-col gap-2.5 items-center justify-center w-full mt-1">
+                  <span className="text-[8px] font-black text-indigo-400 tracking-wider uppercase self-start flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" />
+                    AI Static Frame / פריים סטטי (AI)
+                  </span>
+                  
+                  <div className="flex gap-3.5 items-center w-full">
+                    <div className="shrink-0">
+                      <AiEffectPreview 
+                        prompt={aiEffectPrompt} 
+                        aiEffectJs={aiEffectJs} 
+                        brightness={brightness} 
+                      />
+                    </div>
+                    <div className="flex-1 flex flex-col gap-1 text-left">
+                      <span className="text-[9.5px] font-bold text-slate-300">Generated Blueprint</span>
+                      <p className="text-[9px] text-indigo-300 italic font-medium leading-snug line-clamp-2">"{aiEffectPrompt}"</p>
+                      <span className="text-[7.5px] text-slate-500 uppercase tracking-wider font-mono">Swept 360° POV Sweep</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Status HUD of what will be saved */}
+              <div className="w-full grid grid-cols-2 gap-x-3 gap-y-1.5 text-[9px] font-mono text-slate-400 mt-1">
+                <div className="flex justify-between border-b border-slate-900 pb-1">
+                  <span className="text-slate-500">EFFECT:</span>
+                  <span className="text-sky-400 font-bold uppercase truncate max-w-[70px]">{activeEffect === "ai_custom" ? "AI Custom" : activeEffect}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-1">
+                  <span className="text-slate-500">SPEED:</span>
+                  <span className="text-sky-400 font-bold">{motorSpeed} RPM</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-1">
+                  <span className="text-slate-500">BRIGHTNESS:</span>
+                  <span className="text-sky-400 font-bold">{brightness}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-1">
+                  <span className="text-slate-500">COMPLEX:</span>
+                  <span className="text-sky-400 font-bold">{effectComplexity}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-2.5 mt-2">
+              <button
+                onClick={() => setPendingSaveSlot(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800/60 text-slate-400 hover:text-slate-300 font-black tracking-widest text-[9.5px] transition-all cursor-pointer"
+              >
+                CANCEL / ביטול
+              </button>
+              <button
+                onClick={() => {
+                  if (pendingSaveSlot) {
+                    handleSavePreset(pendingSaveSlot, presetNameInput.trim());
+                    setPendingSaveSlot(null);
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black tracking-widest text-[9.5px] shadow-[0_0_15px_rgba(14,165,233,0.35)] transition-all cursor-pointer"
+              >
+                SAVE / שמירה
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {showBootloaderModal && (
         <>
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100]" onClick={() => setShowBootloaderModal(false)}></div>
@@ -6951,6 +7334,18 @@ void loop() {
           />
         )}
       </AnimatePresence>
+
+      {showTour && (
+        <AppWalkthrough
+          activeTab={activeTab}
+          subPage={subPage}
+          onNavigate={(tab, sub) => {
+            setActiveTab(tab);
+            setSubPage(sub);
+          }}
+          onClose={() => setShowTour(false)}
+        />
+      )}
 
       <GestureController 
         active={gestureMode} 

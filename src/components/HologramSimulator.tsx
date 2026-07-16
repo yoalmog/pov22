@@ -20,6 +20,8 @@ interface HologramSimulatorProps {
   kaleidoMorphSpeed?: number;
   rainbowMode?: boolean;
   flameIntensity?: number;
+  aiEffectJs?: string | null;
+  aiEffectCode?: string | null;
 }
 
 export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
@@ -42,12 +44,30 @@ export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
   kaleidoMorphSpeed = 1.0,
   rainbowMode = false,
   flameIntensity = 128,
+  aiEffectJs = null,
+  aiEffectCode = null,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const logoImgRef = useRef<HTMLImageElement | null>(null);
   const tintedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const aiFunctionRef = useRef<Function | null>(null);
+
+  useEffect(() => {
+    if (aiEffectJs) {
+      try {
+        // eslint-disable-next-line no-new-func
+        aiFunctionRef.current = new Function('stripIndex', 'ledIndex', 'time', 'brightness', 'arms', aiEffectJs);
+      } catch (e) {
+        console.error("Failed to compile AI effect JS inside simulator", e);
+        aiFunctionRef.current = null;
+      }
+    } else {
+      aiFunctionRef.current = null;
+    }
+  }, [aiEffectJs]);
 
   useEffect(() => {
     const updateLogo = () => {
@@ -2860,6 +2880,57 @@ export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
           c.shadowBlur = 0;
           c.restore();
           break;
+        case 'ai_custom': {
+          c.save();
+          c.globalCompositeOperation = 'screen';
+          
+          if (aiFunctionRef.current) {
+            const numArms = 4;
+            const bMult = brightness / 255;
+            
+            // Draw rotating strips representing the physical POV fan arms
+            for (let arm = 0; arm < numArms; arm++) {
+              c.save();
+              const armAngle = (arm * Math.PI * 2) / numArms + rot;
+              c.rotate(armAngle);
+              
+              const numLeds = 15;
+              for (let ledIndex = 0; ledIndex < numLeds; ledIndex++) {
+                const r = (ledIndex / (numLeds - 1)) * radius * effectScale;
+                
+                let color = "rgba(0, 0, 0, 0)";
+                try {
+                  color = aiFunctionRef.current(arm, ledIndex, Math.floor(t * 0.08), bMult, numArms);
+                } catch (e) {
+                  // ignore
+                }
+                
+                if (color && color !== "rgba(0,0,0,0)" && color !== "transparent") {
+                  c.fillStyle = color;
+                  c.shadowBlur = 8 * effectScale;
+                  c.shadowColor = color;
+                  
+                  c.beginPath();
+                  c.arc(r, 0, 3.5 * effectScale, 0, Math.PI * 2);
+                  c.fill();
+                }
+              }
+              c.restore();
+            }
+          } else {
+            // Draw placeholder pattern if no compiled code is active
+            const hueShift = (t * 0.1) % 360;
+            c.strokeStyle = `hsla(${hueShift}, 90%, 60%, 0.8)`;
+            c.lineWidth = 3 * effectScale;
+            c.shadowBlur = 10 * effectScale;
+            c.shadowColor = `hsla(${hueShift}, 90%, 60%, 0.5)`;
+            c.beginPath();
+            c.arc(0, 0, radius * 0.5 * effectScale, 0, Math.PI * 2);
+            c.stroke();
+          }
+          c.restore();
+          break;
+        }
       }
       c.restore();
     };

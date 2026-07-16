@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Loader2, Send, Cpu, Copy, Check } from "lucide-react";
 import { PlatformGuideModal } from "./PlatformGuideModal";
+import { LedVisualizer } from "./LedVisualizer";
+import { registerPlugin } from "@capacitor/core";
+
+const GenAi = registerPlugin<any>("GenAi");
 
 interface Props {
-  onEffectGenerated: (code: string, js: string) => void;
+  onEffectGenerated: (code: string, js: string, prompt: string) => void;
 }
 
 export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
@@ -20,6 +24,23 @@ export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
   useEffect(() => {
     // Check if Chrome's local window.ai is available
     const checkLocalAi = async () => {
+      // If we are on Android running inside Capacitor:
+      const isCapacitor = (window as any).Capacitor !== undefined;
+      const isAndroid = isCapacitor && (window as any).Capacitor.getPlatform() === 'android';
+      if (isAndroid) {
+        try {
+          const { status } = await GenAi.checkStatus();
+          const isAvail = status === "AVAILABLE";
+          setIsLocalAiAvailable(isAvail);
+          if (isAvail) {
+            setEngine("chrome"); // Default to Local Android Nano model if available
+          }
+        } catch (e) {
+          setIsLocalAiAvailable(false);
+        }
+        return;
+      }
+
       try {
         if ("ai" in window && "languageModel" in (window as any).ai) {
           const capabilities = await (window as any).ai.languageModel.capabilities();
@@ -51,8 +72,16 @@ export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
         // Simulate a brief generation delay for premium UX feeling
         await new Promise((resolve) => setTimeout(resolve, 350));
       } else if (engine === "chrome" && isLocalAiAvailable) {
-        // 2. Chrome's built-in On-Device model
-        const systemPrompt = `You are an expert full-stack developer writing effects for a POV LED hologram.
+        const isCapacitor = (window as any).Capacitor !== undefined;
+        const isAndroid = isCapacitor && (window as any).Capacitor.getPlatform() === 'android';
+
+        if (isAndroid) {
+          // On Android: prompt Gemini Nano via ML Kit GenAI Prompt API!
+          const { response } = await GenAi.generateContent({ prompt });
+          parsed = JSON.parse(response);
+        } else {
+          // 2. Chrome's built-in On-Device model
+          const systemPrompt = `You are an expert full-stack developer writing effects for a POV LED hologram.
 The user wants an effect that: ${prompt}
 
 You must return a JSON object with two fields:
@@ -68,13 +97,14 @@ You must return a JSON object with two fields:
 Return ONLY the raw JSON object, no markdown blocks, no markdown formatting.
 Format: {"cpp": "...", "js": "..."}`;
 
-        const session = await (window as any).ai.languageModel.create({
-          systemPrompt: "You are a specialized code generator that outputs strictly raw JSON.",
-        });
+          const session = await (window as any).ai.languageModel.create({
+            systemPrompt: "You are a specialized code generator that outputs strictly raw JSON.",
+          });
 
-        const responseText = await session.prompt(systemPrompt);
-        const rawText = responseText.replace(/```(json)?|```/gi, "").trim() || "{}";
-        parsed = JSON.parse(rawText);
+          const responseText = await session.prompt(systemPrompt);
+          const rawText = responseText.replace(/```(json)?|```/gi, "").trim() || "{}";
+          parsed = JSON.parse(rawText);
+        }
       } else {
         // 3. Fallback to Server-Side Cloud Gemini API
         const response = await fetch("/api/generate-effect", {
@@ -97,7 +127,7 @@ Format: {"cpp": "...", "js": "..."}`;
         throw new Error("AI did not return the expected code format.");
       }
       
-      onEffectGenerated(parsed.cpp, parsed.js);
+      onEffectGenerated(parsed.cpp, parsed.js, prompt);
       setGeneratedEffect({ cpp: parsed.cpp, js: parsed.js, prompt: prompt });
       setPrompt("");
     } catch (err: any) {
@@ -109,11 +139,15 @@ Format: {"cpp": "...", "js": "..."}`;
 
   // Get current engine description
   const getEngineDesc = () => {
+    const isCapacitor = (window as any).Capacitor !== undefined;
+    const isAndroid = isCapacitor && (window as any).Capacitor.getPlatform() === 'android';
     if (engine === "local") {
       return "Synthesize math, colors, & patterns locally in your browser with zero latency.";
     }
     if (engine === "chrome") {
-      return "Generate code locally using Chrome's built-in Gemini Nano LLM (requires Chrome flags).";
+      return isAndroid
+        ? "Generate code locally using Android ML Kit GenAI Prompt API (Gemini Nano on-device)."
+        : "Generate code locally using Chrome's built-in Gemini Nano LLM (requires Chrome flags).";
     }
     return "Leverage Google Cloud Gemini models for highly complex, customized algorithmic effects.";
   };
@@ -132,7 +166,7 @@ Format: {"cpp": "...", "js": "..."}`;
           </span>
         ) : engine === "chrome" ? (
           <span className="ml-auto text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md font-bold uppercase tracking-wider flex items-center gap-1">
-            <Sparkles className="w-2.5 h-2.5 animate-spin" /> Chrome Nano
+            <Sparkles className="w-2.5 h-2.5 animate-spin" /> {/Android/i.test(navigator.userAgent) ? "Android Nano" : "Chrome Nano"}
           </span>
         ) : (
           <span className="ml-auto text-[9px] bg-pink-500/20 text-pink-400 px-2 py-1 rounded-md font-bold uppercase tracking-wider">
@@ -189,7 +223,7 @@ Format: {"cpp": "...", "js": "..."}`;
           }`}
         >
           <Cpu className="w-3.5 h-3.5" />
-          <span>Chrome Nano</span>
+          <span>{/Android/i.test(navigator.userAgent) ? "Android Nano" : "Chrome Nano"}</span>
         </button>
       </div>
       
@@ -264,6 +298,29 @@ Format: {"cpp": "...", "js": "..."}`;
             </div>
           </div>
 
+          {/* AI-Generated LED Strip Live Preview */}
+          <div className="flex flex-col gap-2 p-4 bg-slate-900/30 rounded-2xl border border-slate-900/80 items-center justify-center">
+            <div className="flex justify-between items-center w-full">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" /> Live Dynamic Simulation / תצוגה מקדימה חיה
+              </span>
+              <span className="text-[9px] text-slate-500 font-mono">
+                Running Generated JavaScript Simulator
+              </span>
+            </div>
+            
+            <div className="w-full flex items-center justify-center py-2 px-6 bg-slate-950/80 rounded-xl border border-slate-900/60 shadow-[inset_0_0_20px_rgba(0,0,0,0.6)]">
+              <LedVisualizer 
+                arms={4}
+                stripsPerArm={1}
+                strips={14}
+                activeEffect="ai_custom"
+                aiEffectJs={generatedEffect.js}
+                brightness={220}
+              />
+            </div>
+          </div>
+
           <div className="relative">
             <button
               onClick={() => {
@@ -306,7 +363,7 @@ Format: {"cpp": "...", "js": "..."}`;
 
 // --- Helper Functions for instant, zero-latency Local Offline AI Semantic Compiler ---
 
-function compilePromptLocally(prompt: string): { cpp: string; js: string } {
+export function compilePromptLocally(prompt: string): { cpp: string; js: string } {
   const p = prompt.toLowerCase();
   
   // 1. Color extraction

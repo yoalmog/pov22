@@ -7,6 +7,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(EsptoolPlugin.class);
+        registerPlugin(GenAiPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
