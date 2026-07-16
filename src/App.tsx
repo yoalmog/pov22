@@ -749,6 +749,30 @@ export default function App() {
     return path;
   };
 
+  /**
+   * Helper function to validate firmware download paths.
+   * Ensures the path points to a valid binary file.
+   */
+  const validateFirmwarePath = (path: string): boolean => {
+    if (!path || typeof path !== 'string') return false;
+    const cleanPath = path.split('?')[0].split('#')[0];
+    return cleanPath.toLowerCase().endsWith('.bin');
+  };
+
+  /**
+   * Generates a full absolute URL for browser navigation (window.open).
+   * Always uses http:// and the explicit IP to avoid HTTPS mixed content blocks on local network.
+   */
+  const getExternalDeviceUrl = (path: string) => {
+    const targetPath = path.startsWith('/') ? path : `/${path}`;
+    if (state.wifi.mode === "AP") return `http://192.168.4.1${targetPath}`;
+    if (state.wifi.ip && state.wifi.ip.trim() !== "") {
+      const ipStr = state.wifi.ip.trim();
+      return ipStr.startsWith("http") ? `${ipStr}${targetPath}` : `http://${ipStr}${targetPath}`;
+    }
+    return targetPath;
+  };
+
   const safeFetch = async (url: string, options?: any) => {
     const isHttps = window.location.protocol === 'https:';
     if (isHttps && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
@@ -2386,6 +2410,153 @@ export default function App() {
     }
   };
 
+  const processLogoImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error("Failed to get canvas context"));
+
+        // Fill with black (transparency to black)
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, 128, 64);
+
+        // Aspect ratio resizing
+        const scale = Math.min(128 / img.width, 64 / img.height);
+        const x = (128 / 2) - (img.width / 2) * scale;
+        const y = (64 / 2) - (img.height / 2) * scale;
+        
+        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+        // Greyscale conversion logic (Luminance)
+        const imageData = ctx.getImageData(0, 0, 128, 64);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+          data[i] = avg;
+          data[i+1] = avg;
+          data[i+2] = avg;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Blob conversion failed"));
+        }, 'image/png');
+      };
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const backupData = {
+        version: "1.2.0",
+        exportDate: new Date().toISOString(),
+        presets: presets,
+        systemState: {
+          wifi: state.wifi,
+          led: state.led,
+          motor: state.motor,
+          detectedModel: state.detectedModel,
+          logoUrl,
+          logoRotation,
+          logoTintColor
+        }
+      };
+      
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `holospin_backup_${new Date().toLocaleDateString()}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      setToastMessage("Full system backup exported! / גיבוי מערכת מלא יוצא בהצלחה");
+    } catch (e) {
+      console.error("Backup failed", e);
+      setToastMessage("Backup failed / ייצוא הגיבוי נכשל");
+    }
+  };
+
+  const handleIntegratedOtaUpdate = async () => {
+    try {
+      setIsFlashing(true);
+      setFlashProgress(0);
+      setFlashStage('ota');
+      setFlashMessage("Downloading firmware binary from HoloSpin Server...");
+
+      const binRes = await fetch('/firmware.bin');
+      if (!binRes.ok) throw new Error("Could not download firmware.bin from server");
+      
+      const contentLength = binRes.headers.get('Content-Length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      let loaded = 0;
+
+      const reader = binRes.body?.getReader();
+      if (!reader) throw new Error("ReadableStream not supported");
+
+      const chunks = [];
+      while(true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        if (total > 0) {
+          setFlashProgress(Math.round((loaded / total) * 30)); // First 30% is download
+        }
+      }
+
+      const firmwareBlob = new Blob(chunks);
+      setFlashMessage("Firmware ready. Connecting to local hardware...");
+      setFlashProgress(30);
+
+      const targetUrl = getExternalDeviceUrl("/update");
+      setFlashMessage("Uploading to hardware via Wi-Fi (ElegantOTA)... Do not close this app.");
+
+      const formData = new FormData();
+      formData.append('MD5', '');
+      formData.append('update', firmwareBlob, 'firmware.bin');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', targetUrl, true);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const uploadProgress = Math.round((e.loaded / e.total) * 70);
+          setFlashProgress(30 + uploadProgress);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          setFlashStage('completed');
+          setFlashProgress(100);
+          setFlashMessage("OTA Update SUCCESS! Device is rebooting...");
+        } else {
+          setFlashStage('error');
+          setFlashMessage(`Upload failed: Server returned ${xhr.status}`);
+        }
+      };
+
+      xhr.onerror = () => {
+        setFlashStage('error');
+        setFlashMessage("Network error during OTA upload. Check your Wi-Fi connection.");
+      };
+
+      xhr.send(formData);
+
+    } catch (err: any) {
+      console.error("OTA Error:", err);
+      setFlashStage('error');
+      setFlashMessage(`OTA Update Failed: ${err.message}`);
+    }
+  };
+
   const handleExportPresets = () => {
     try {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(presets, null, 2));
@@ -3921,13 +4092,28 @@ void loop() {
                 </p>
                 <div className="flex gap-2 mt-auto">
                   <button
-                    onClick={() => window.open(state.wifi.mode === "AP" ? "http://192.168.4.1/update" : "/update", '_blank')}
+                    onClick={handleIntegratedOtaUpdate}
                     className="flex-1 py-2.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/50 text-emerald-400 font-bold uppercase text-[9px] tracking-widest transition"
                   >
-                    Open OTA Flasher
+                    Start OTA Update
+                  </button>
+                  <button
+                    onClick={() => {
+                      const url = getExternalDeviceUrl("/update");
+                      window.open(url, '_blank');
+                    }}
+                    className="flex-1 py-2.5 rounded-lg bg-slate-800/40 hover:bg-slate-800/60 border border-slate-700/50 text-slate-400 font-bold uppercase text-[9px] tracking-widest transition"
+                  >
+                    External Flasher
                   </button>
                   <a
                     href="/firmware.bin"
+                    onClick={(e) => {
+                      if (!validateFirmwarePath("/firmware.bin")) {
+                        e.preventDefault();
+                        setToastMessage("Invalid firmware path detected / נתיב קושחה לא תקין");
+                      }
+                    }}
                     download="holospin_firmware.bin"
                     className="flex-1 py-2.5 flex items-center justify-center rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/50 text-emerald-400 font-bold uppercase text-[9px] tracking-widest transition"
                   >
@@ -4387,6 +4573,12 @@ void loop() {
                   className="py-3 px-4 border border-slate-800 hover:border-sky-500 hover:text-sky-400 rounded-xl text-[10px] font-bold tracking-wider uppercase transition bg-slate-900/40 text-slate-300 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                 >
                   <Download className="w-4 h-4 text-sky-400" /> Export Presets
+                </button>
+                <button
+                  onClick={handleExportBackup}
+                  className="py-3 px-4 border border-slate-800 hover:border-indigo-500 hover:text-indigo-400 rounded-xl text-[10px] font-bold tracking-wider uppercase transition bg-slate-900/40 text-slate-300 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Save className="w-4 h-4 text-indigo-400" /> Full Backup
                 </button>
                 <label className="py-3 px-4 border border-slate-800 hover:border-emerald-500 hover:text-emerald-400 rounded-xl text-[10px] font-bold tracking-wider uppercase transition bg-slate-900/40 text-slate-350 flex items-center justify-center gap-2 cursor-pointer text-center relative active:scale-95">
                   <Upload className="w-4 h-4 text-[#10b981]" /> Import Presets
@@ -5674,26 +5866,32 @@ void loop() {
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                         setToastMessage(`מעלה תמונה... / Uploading image...`);
+                         setToastMessage(`מעבד תמונה... / Processing image...`);
                          try {
+                           // 1. Pre-process image to 128x64 greyscale
+                           const processedBlob = await processLogoImage(file);
+                           const processedFile = new File([processedBlob], "logo_128x64.png", { type: "image/png" });
+                           
+                           setToastMessage(`מעלה תמונה מעובדת... / Uploading processed image...`);
                            const formData = new FormData();
-                           formData.append('file', file);
+                           formData.append('file', processedFile);
                            const res = await fetch('/api/upload-file', { method: 'POST', body: formData });
                            if (!res.ok) throw new Error("Upload failed");
                            const data = await res.json();
                            setLogoUrl(data.url);
                            // Back up to IndexedDB
-                           saveMediaToDB("custom_logo", file, file.name).catch(e => console.warn("Could not back up custom logo:", e));
-                           setToastMessage(`תמונה הועלתה בהצלחה! / Image uploaded!`);
+                           saveMediaToDB("custom_logo", processedFile, processedFile.name).catch(e => console.warn("Could not back up custom logo:", e));
+                           setToastMessage(`תמונה הועלתה בהצלחה! / Image processed and uploaded!`);
                          } catch (err) {
                            console.error("Server upload failed, falling back to IndexedDB local cache...", err);
                            setToastMessage("שרת לא זמין, שומר בזיכרון המקומי... / Server offline, caching locally in IndexedDB...");
                            try {
-                             await saveMediaToDB("custom_logo", file, file.name);
-                             const localUrl = URL.createObjectURL(file);
+                             const processedBlob = await processLogoImage(file);
+                             await saveMediaToDB("custom_logo", processedBlob, "logo_128x64.png");
+                             const localUrl = URL.createObjectURL(processedBlob);
                              setLogoUrl(localUrl);
                              safeSaveLocal("holospin_logoUrl", "indexeddb:custom_logo");
-                             setToastMessage("תמונה נשמרה מקומית ב-IndexedDB! / Image saved locally in IndexedDB!");
+                             setToastMessage("תמונה עובדה ונשמרה מקומית! / Image processed and saved locally!");
                            } catch (idbErr: any) {
                              console.error("IndexedDB save failed:", idbErr);
                              setToastMessage("שגיאה בהעלאה / Upload failed");
@@ -7120,13 +7318,13 @@ void loop() {
           }}></div>
           <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-[#090a10] border border-slate-800/80 rounded-2xl p-6 z-[110] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
             <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-              <Cpu className="w-8 h-8 text-amber-500 animate-pulse" />
+              <Cpu className={`w-8 h-8 ${flashStage === 'ota' ? 'text-emerald-500' : 'text-amber-500'} animate-pulse`} />
               <div className="flex flex-col">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Native USB Flasher
+                  {flashStage === 'ota' ? 'Wi-Fi OTA Flasher' : 'Native USB Flasher'}
                 </h3>
-                <span className="text-[9px] text-amber-400/80 font-mono font-bold uppercase tracking-wider">
-                  ESP32 ROM BOOTLOADER
+                <span className={`text-[9px] ${flashStage === 'ota' ? 'text-emerald-400/80' : 'text-amber-400/80'} font-mono font-bold uppercase tracking-wider`}>
+                  {flashStage === 'ota' ? 'Wireless Binary Stream' : 'ESP32 ROM BOOTLOADER'}
                 </span>
               </div>
             </div>
@@ -7140,15 +7338,16 @@ void loop() {
                   {flashStage === 'erasing' && 'Erasing Flash...'}
                   {flashStage === 'writing' && 'Uploading Firmware...'}
                   {flashStage === 'verifying' && 'Verifying Checksum...'}
-                  {flashStage === 'completed' && 'Flashing Successful!'}
-                  {flashStage === 'error' && 'Flashing Failed!'}
+                  {flashStage === 'ota' && 'Streaming via WiFi...'}
+                  {flashStage === 'completed' && 'Update Successful!'}
+                  {flashStage === 'error' && 'Update Failed!'}
                 </span>
-                <span className="text-xs text-amber-400 font-mono font-bold">{flashProgress}%</span>
+                <span className={`text-xs ${flashStage === 'ota' ? 'text-emerald-400' : 'text-amber-400'} font-mono font-bold`}>{flashProgress}%</span>
               </div>
 
               <div className="w-full h-2.5 bg-slate-800/80 rounded-full overflow-hidden p-[1px] border border-slate-700/30">
                 <div 
-                  className="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-300 rounded-full transition-all duration-300 shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                  className={`h-full bg-gradient-to-r ${flashStage === 'ota' ? 'from-emerald-500 via-emerald-400 to-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'from-amber-500 via-amber-400 to-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.5)]'} rounded-full transition-all duration-300`}
                   style={{ width: `${flashProgress}%` }}
                 ></div>
               </div>
