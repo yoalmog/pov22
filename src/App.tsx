@@ -1817,7 +1817,7 @@ export default function App() {
 
     try {
       // Real diagnostic API call to ESP32
-      const targetUrl = getDeviceUrl("/api/status");
+      const targetUrl = getDeviceUrl("/status");
       const res = await safeFetch(targetUrl, { signal: diagnosticAbortControllerRef.current.signal });
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error("Diagnostics API failed");
@@ -1843,7 +1843,7 @@ export default function App() {
 
       setDiagnosticsResult({ 
         error: errorMsg,
-        details: "Make sure the system is powered and connected to the same network."
+        details: "Make sure the system is powered on, connected to the same WiFi network, and that you have permitted the app to communicate with local devices."
       });
       setIsRunningDiagnostics(false);
     }

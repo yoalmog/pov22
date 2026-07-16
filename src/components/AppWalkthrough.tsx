@@ -156,12 +156,20 @@ export const AppWalkthrough: React.FC<AppWalkthroughProps> = ({
       updateCoords();
     }, 400);
 
-    window.addEventListener("resize", updateCoords);
+    // Debounced resize handler to ensure popover follows elements correctly on orientation changes
+    let resizeTimer: any;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateCoords, 150);
+    };
+
+    window.addEventListener("resize", handleResize);
     window.addEventListener("scroll", updateCoords, { passive: true });
 
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("resize", updateCoords);
+      clearTimeout(resizeTimer);
+      window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", updateCoords);
     };
   }, [currentStepIndex, activeTab, subPage]);
@@ -230,7 +238,7 @@ export const AppWalkthrough: React.FC<AppWalkthroughProps> = ({
   const isBottomHalf = coords ? (coords.top + coords.height / 2 > window.innerHeight / 2) : false;
 
   return (
-    <div className="fixed inset-0 z-[9999] overflow-hidden pointer-events-none">
+    <div className="fixed inset-0 z-[10000] overflow-hidden pointer-events-none">
       {/* SVG Spotlight Mask */}
       <svg 
         className="absolute inset-0 w-full h-full pointer-events-auto"
@@ -289,8 +297,17 @@ export const AppWalkthrough: React.FC<AppWalkthroughProps> = ({
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
           style={popoverStyle}
-          className="pointer-events-auto bg-[#090a10] border border-slate-800 rounded-3xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex flex-col gap-4 relative z-[10000]"
+          className="pointer-events-auto bg-[#090a10] border border-slate-800 rounded-3xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex flex-col gap-4 relative z-[10001]"
         >
+          {/* Visual Progress Bar */}
+          <div className="absolute top-0 left-0 w-full h-1 bg-slate-900 rounded-t-3xl overflow-hidden">
+            <motion.div 
+              className="h-full bg-gradient-to-r from-sky-400 to-indigo-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${((currentStepIndex + 1) / steps.length) * 100}%` }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+            />
+          </div>
           {/* Arrow indicator for spotlight */}
           {coords && (
             <div 

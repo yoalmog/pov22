@@ -87,12 +87,12 @@ export function useHardwareStream(initialDeviceId: string | null) {
         // Drop existing connection if any
         try { await BleClient.disconnect(deviceId); } catch(e) {}
 
-        // Timeout handler for connection hangs
+        // Timeout handler for connection hangs (increased to 25 seconds for Android BLE discovery and connection)
         connectionTimeoutRef.current = setTimeout(() => {
           if (isActive && !isSubscribed) {
-            handleError(new Error("Connection attempt timed out"));
+            handleError(new Error("Connection attempt timed out. Ensure ESP32 is powered, and both Bluetooth and Location (GPS) are enabled on your phone."));
           }
-        }, 8000);
+        }, 25000);
 
         await BleClient.connect(deviceId, (disconnectedId) => {
           if (isActive) {
@@ -163,7 +163,7 @@ export function useHardwareStream(initialDeviceId: string | null) {
           if (isActive) connect();
         }, delay);
       } else if (isActive) {
-        setError(`Connection failed: ${errMsg}`);
+        setError(`Connection failed: ${errMsg}. Ensure BLE & Location services are ON, and you are close to the HoloSpin device.`);
       }
     };
 
