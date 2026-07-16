@@ -216,9 +216,9 @@ Return ONLY the raw JSON object conforming to the schema.`;
     rssi: -45 - Math.floor(Math.random() * 10),
     uptime: process.uptime(),
     storage: {
-      mounted: true,
-      total: "16 GB",
-      used: "1.2 GB"
+      mounted: false,
+      total: "---",
+      used: "---"
     }
   });
 

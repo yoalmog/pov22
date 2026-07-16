@@ -2303,23 +2303,6 @@ export default function App() {
         }, 3000);
         return () => clearTimeout(timer);
       }
-      
-      // Maintain storage status with simulated data
-      if (!state.storage?.files?.length) {
-        setState((p: any) => ({
-          ...p,
-          storage: {
-            ...p.storage,
-            mounted: true,
-            totalSpace: "16 GB",
-            usedSpace: "1.2 GB",
-            files: p.storage.files.length > 0 ? p.storage.files : [
-              { name: "nebula_spiral.png", type: "image", size: "342 KB", path: "/images/nebula_spiral_POV.png", selected: true },
-              { name: "matrix_stream.gif", type: "image", size: "820 KB", path: "/images/matrix_code_stream.gif", selected: false }
-            ]
-          }
-        }));
-      }
     }
   };
 
@@ -4410,11 +4393,31 @@ void loop() {
                                 className="absolute inset-0 bg-[#00b4d8] rounded-xl blur-md -z-10"
                               />
                             )}
-                            <div className={`w-12 h-12 rounded-xl bg-slate-900 border flex items-center justify-center shadow-inner transition ${isPresetActive ? 'border-[#00b4d8] shadow-[0_0_15px_rgba(0,180,216,0.2)]' : 'border-slate-800 group-hover:border-slate-700'}`}>
+                            <div className={`w-12 h-12 rounded-xl bg-slate-900 border flex items-center justify-center shadow-inner transition overflow-hidden relative ${isPresetActive ? 'border-[#00b4d8] shadow-[0_0_15px_rgba(0,180,216,0.2)]' : 'border-slate-800 group-hover:border-slate-700'}`}>
                               {saved ? (
-                                <div className="scale-75">
+                                <motion.div 
+                                  className={`scale-75 flex items-center justify-center ${
+                                    saved.activeEffect === 'rainbow' || saved.activeEffect === 'acid' ? 'animate-rainbow-shift' :
+                                    ['hypno', 'portal', 'kaleidoscope', 'mandala'].includes(saved.activeEffect) ? 'animate-hypno-spin' :
+                                    ['matrix', 'video_synth'].includes(saved.activeEffect) ? 'animate-matrix-scroll' :
+                                    ['mushrooms', 'alien'].includes(saved.activeEffect) ? 'animate-float-mini' :
+                                    ''
+                                  }`}
+                                  animate={
+                                    saved.activeEffect === 'fire' ? { opacity: [0.7, 1, 0.8, 1, 0.6, 1], scale: [1, 1.05, 0.95, 1.1, 1] } :
+                                    ['plasma', 'dna', 'ai_custom'].includes(saved.activeEffect) ? { scale: [0.9, 1.1, 0.9] } :
+                                    saved.activeEffect === 'cube3d' ? { rotateX: [0, 360], rotateY: [0, 360] } :
+                                    saved.activeEffect === 'animation_flow' ? { x: [-2, 2, -2], scale: [1, 1.05, 1] } :
+                                    {}
+                                  }
+                                  transition={{
+                                    duration: ['cube3d'].includes(saved.activeEffect) ? 4 : 2,
+                                    repeat: Infinity,
+                                    ease: "linear"
+                                  }}
+                                >
                                   {effectConfig?.icon(effectColor)}
-                                </div>
+                                </motion.div>
                               ) : (
                                 <Plus className="w-5 h-5 text-slate-800" />
                               )}

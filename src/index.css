@@ -108,3 +108,40 @@ body {
 .animate-fire-glow-preview {
   animation: fireGlowPreview 2s ease-in-out infinite;
 }
+
+@keyframes rainbow-shift {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes matrix-scroll {
+  0% { transform: translateY(-5px); opacity: 0.5; }
+  50% { transform: translateY(5px); opacity: 1; }
+  100% { transform: translateY(-5px); opacity: 0.5; }
+}
+
+@keyframes hypno-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes float-mini {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-3px) rotate(2deg); }
+}
+
+.animate-rainbow-shift {
+  animation: rainbow-shift 3s linear infinite;
+}
+
+.animate-matrix-scroll {
+  animation: matrix-scroll 2s ease-in-out infinite;
+}
+
+.animate-hypno-spin {
+  animation: hypno-spin 5s linear infinite;
+}
+
+.animate-float-mini {
+  animation: float-mini 2s ease-in-out infinite;
+}
