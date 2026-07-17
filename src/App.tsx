@@ -781,7 +781,7 @@ export default function App() {
          return res;
        } catch (e: any) {
          if (e.message && e.message.includes('Failed to fetch')) {
-           setToastMessage("שגיאת חיבור: דפדפנים חוסמים גישה לכתובות HTTP מתוך סביבת HTTPS. יש להוריד את האפליקציה למחשב או להתחבר דרך Bluetooth! / Browser blocked HTTP connection from HTTPS.");
+           setToastMessage("שגיאת אבטחה (HTTPS): הדפדפן חוסם גישה למכשיר. יש להשתמש ב-Bluetooth או להוריד את האפליקציה למחשב / Browser blocked HTTP device connection due to HTTPS security.");
          }
          throw e;
        }
@@ -2155,14 +2155,10 @@ export default function App() {
       isMounted = true;
     } catch (err) {
       console.error("Failed to read SD Card files:", err);
-      // Fallback to simulated files if we're not on the actual hardware IP
+      // Fallback to empty if we're not on the actual hardware IP
       if (window.location.hostname !== "192.168.4.1") {
-        baseFiles = [
-          { name: "butterfly_nebula.png", size: "128 KB", type: "image", path: "/images/butterfly_nebula.png", selected: true },
-          { name: "hologram_planet.png", size: "256 KB", type: "image", path: "/images/hologram_planet.png", selected: true },
-          { name: "galaxy_big_bang.mp4", size: "1.2 MB", type: "video", path: "/videos/galaxy_big_bang.mp4", selected: true }
-        ];
-        isMounted = true;
+        baseFiles = [];
+        isMounted = false;
       } else {
         setToastMessage("שגיאה בקריאת הקבצים: וודא חיבור למכשיר / Error: Check device connection");
         isMounted = false;
@@ -2735,7 +2731,25 @@ export default function App() {
     try {
       const saved = safeGetLocal("holospin_state");
       if (saved) {
-        const parsed = JSON.parse(saved) || {};
+        let parsed = JSON.parse(saved) || {};
+        
+        // CLEANUP: If the saved state contains old mock storage data, reset it
+        const storage = parsed.storage;
+        if (storage) {
+          const isMockTotal = storage.totalSpace && storage.totalSpace.toLowerCase().includes("16");
+          const isMockUsed = storage.usedSpace && storage.usedSpace.toLowerCase().includes("1.2");
+          const hasMockFiles = storage.files && storage.files.some((f: any) => f.name === "butterfly_nebula.png");
+          
+          if (isMockTotal || isMockUsed || hasMockFiles) {
+            parsed.storage = {
+              mounted: false,
+              totalSpace: "---",
+              usedSpace: "---",
+              files: []
+            };
+          }
+        }
+
         const safeParse = (cat: keyof typeof defaultState) => {
           const defaultCat = defaultState[cat];
           const parsedCat = parsed[cat];
@@ -4901,7 +4915,12 @@ void loop() {
               
               {state.storage?.mounted ? (
                 <div className="w-24 h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-emerald-500 to-[#06b6d4]" style={{ width: '13%' }}></div>
+                  <div 
+                    className="h-full bg-gradient-to-r from-emerald-500 to-[#06b6d4]" 
+                    style={{ 
+                      width: `${Math.min(100, Math.max(0, (parseFloat(state.storage?.usedSpace || "0") / parseFloat(state.storage?.totalSpace || "1")) * 100))}%` 
+                    }}
+                  ></div>
                 </div>
               ) : (
                 <span className="text-[10px] text-rose-400/80 font-mono font-bold uppercase animate-pulse">DISCONNECTED</span>
@@ -6706,8 +6725,8 @@ void loop() {
       </AnimatePresence>
 
       {toastMessage && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border px-4 py-3 rounded-xl text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3 ${toastMessage.toLowerCase().includes("error") || toastMessage.toLowerCase().includes("שגיאה") || toastMessage.toLowerCase().includes("failed") ? "border-rose-500/50 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.35)]" : "border-[#22c55e]/50 text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.35)]"}`}>
-          {toastMessage.toLowerCase().includes("error") || toastMessage.toLowerCase().includes("שגיאה") || toastMessage.toLowerCase().includes("failed") ? (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border px-4 py-3 rounded-xl text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3 ${toastMessage.toLowerCase().includes("error") || toastMessage.includes("שגיאה") || toastMessage.includes("שגיאת") || toastMessage.toLowerCase().includes("failed") ? "border-rose-500/50 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.35)]" : "border-[#22c55e]/50 text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.35)]"}`}>
+          {toastMessage.toLowerCase().includes("error") || toastMessage.includes("שגיאה") || toastMessage.includes("שגיאת") || toastMessage.toLowerCase().includes("failed") ? (
              <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
           ) : (
              <CheckCircle2 className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
