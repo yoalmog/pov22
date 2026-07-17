@@ -227,6 +227,10 @@ Return ONLY the raw JSON object conforming to the schema.`;
     res.json(getStatusJson());
   });
 
+  app.get("/version", (req, res) => {
+    res.json({ version: "1.2.0", build: "20260716", model: mockModel });
+  });
+
   app.post("/api/set-model", (req, res) => {
     const { model } = req.body;
     if (model) {

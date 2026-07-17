@@ -346,3 +346,40 @@ export async function clearAllMediaInDB(): Promise<void> {
     throw err;
   }
 }
+
+/**
+ * Prunes media older than the specified number of days (default 30).
+ * Returns the count of deleted items.
+ */
+export async function pruneOldMediaFromDB(days: number = 30): Promise<number> {
+  try {
+    const db = await initDB();
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction("media", "readwrite");
+      const store = transaction.objectStore("media");
+      const request = store.openCursor();
+      let deletedCount = 0;
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          const record = cursor.value as CachedMedia;
+          if (record.updatedAt < cutoff) {
+            cursor.delete();
+            deletedCount++;
+          }
+          cursor.continue();
+        } else {
+          resolve(deletedCount);
+        }
+      };
+      
+      request.onerror = () => reject(request.error || new Error("Failed to prune old media"));
+    });
+  } catch (err) {
+    console.error("Error pruning old media from IndexedDB:", err);
+    return 0;
+  }
+}

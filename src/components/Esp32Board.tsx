@@ -13,9 +13,10 @@ interface Props {
   ledPins?: string;
   motorPin?: string | number;
   sensorPin?: string | number;
+  onPinClick?: (pin: PinDef) => void;
 }
 
-export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", motorPin = 12, sensorPin = 27 }) => {
+export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", motorPin = 12, sensorPin = 27, onPinClick }) => {
   const [hoveredPin, setHoveredPin] = useState<string | null>(null);
 
   const leftPins: PinDef[] = [
@@ -196,6 +197,7 @@ export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", mo
                 key={`left-${index}`}
                 onMouseEnter={() => setHoveredPin(`left-${index}`)}
                 onMouseLeave={() => setHoveredPin(null)}
+                onClick={() => onPinClick?.(pin)}
                 className="cursor-pointer transition-all duration-200"
               >
                 {/* Visual Connector Wires (Zig-zag line to left labels) */}
@@ -304,6 +306,7 @@ export const Esp32Board: React.FC<Props> = ({ activePins, ledPins = "25, 26", mo
                 key={`right-${index}`}
                 onMouseEnter={() => setHoveredPin(`right-${index}`)}
                 onMouseLeave={() => setHoveredPin(null)}
+                onClick={() => onPinClick?.(pin)}
                 className="cursor-pointer transition-all duration-200"
               >
                 {/* Visual Connector Wires (Zig-zag line to right labels) */}

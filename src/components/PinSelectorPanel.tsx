@@ -55,6 +55,7 @@ const FLASH_PINS = [6, 7, 8, 9, 10, 11];
 export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setState, onBack }) => {
   const [selectedPreset, setSelectedPreset] = useState<"custom" | "classic" | "s3" | "c3">("custom");
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [selectionTarget, setSelectionTarget] = useState<"led" | "motor" | "hall" | "mic" | null>(null);
 
   // Helper to extract numeric pins
   const parseLedPins = (pinStr: string): number[] => {
@@ -68,6 +69,28 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
   const motorPin = parseInt(state.motor.pin, 10);
   const sensorPin = parseInt(state.sync.sensorPin, 10);
   const adcPin = parseInt(state.sync.adcPin || "32", 10);
+
+  const handleBoardPinClick = (pin: any) => {
+    if (!selectionTarget) return;
+
+    const gpioNum = parseInt(pin.gpio.replace("GPIO", ""), 10);
+    if (isNaN(gpioNum)) return;
+
+    if (selectionTarget === "led") {
+      const current = parseLedPins(state.led.pins);
+      if (!current.includes(gpioNum)) {
+        handlePinChange("led", "pins", state.led.pins ? `${state.led.pins}, ${gpioNum}` : `${gpioNum}`);
+      }
+    } else if (selectionTarget === "motor") {
+      handlePinChange("motor", "pin", gpioNum);
+    } else if (selectionTarget === "hall") {
+      handlePinChange("sync", "sensorPin", gpioNum);
+    } else if (selectionTarget === "mic") {
+      handlePinChange("sync", "adcPin", gpioNum);
+    }
+    
+    setSelectionTarget(null);
+  };
 
   // Validate current mapping configuration
   const conflicts: string[] = [];
@@ -314,9 +337,17 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
           </div>
 
           <div className="flex flex-col gap-3">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Assigned LED Data Pins:
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Assigned LED Data Pins:
+              </label>
+              <button 
+                onClick={() => setSelectionTarget(selectionTarget === "led" ? null : "led")}
+                className={`text-[9px] px-2 py-1 rounded-lg border transition-all ${selectionTarget === "led" ? 'bg-purple-500 border-purple-400 text-white animate-pulse' : 'bg-slate-900 border-slate-800 text-purple-400 hover:bg-slate-800'}`}
+              >
+                {selectionTarget === "led" ? "CLICK PIN ON BOARD..." : "PICK FROM BOARD"}
+              </button>
+            </div>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -358,9 +389,17 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Select PWM Pin:
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Select PWM Pin:
+              </label>
+              <button 
+                onClick={() => setSelectionTarget(selectionTarget === "motor" ? null : "motor")}
+                className={`text-[9px] px-2 py-1 rounded-lg border transition-all ${selectionTarget === "motor" ? 'bg-sky-500 border-sky-400 text-white animate-pulse' : 'bg-slate-900 border-slate-800 text-sky-400 hover:bg-slate-800'}`}
+              >
+                {selectionTarget === "motor" ? "CLICK PIN ON BOARD..." : "PICK FROM BOARD"}
+              </button>
+            </div>
             <select
               value={state.motor.pin}
               onChange={(e) => handlePinChange("motor", "pin", parseInt(e.target.value, 10))}
@@ -390,9 +429,17 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Select Interrupt Pin:
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Select Interrupt Pin:
+              </label>
+              <button 
+                onClick={() => setSelectionTarget(selectionTarget === "hall" ? null : "hall")}
+                className={`text-[9px] px-2 py-1 rounded-lg border transition-all ${selectionTarget === "hall" ? 'bg-amber-500 border-amber-400 text-white animate-pulse' : 'bg-slate-900 border-slate-800 text-amber-400 hover:bg-slate-800'}`}
+              >
+                {selectionTarget === "hall" ? "CLICK PIN ON BOARD..." : "PICK FROM BOARD"}
+              </button>
+            </div>
             <select
               value={state.sync.sensorPin}
               onChange={(e) => handlePinChange("sync", "sensorPin", parseInt(e.target.value, 10))}
@@ -422,9 +469,17 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Select ADC Pin:
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Select ADC Pin:
+              </label>
+              <button 
+                onClick={() => setSelectionTarget(selectionTarget === "mic" ? null : "mic")}
+                className={`text-[9px] px-2 py-1 rounded-lg border transition-all ${selectionTarget === "mic" ? 'bg-pink-500 border-pink-400 text-white animate-pulse' : 'bg-slate-900 border-slate-800 text-pink-400 hover:bg-slate-800'}`}
+              >
+                {selectionTarget === "mic" ? "CLICK PIN ON BOARD..." : "PICK FROM BOARD"}
+              </button>
+            </div>
             <select
               value={state.sync.adcPin || 32}
               onChange={(e) => handlePinChange("sync", "adcPin", parseInt(e.target.value, 10))}
@@ -455,6 +510,7 @@ export const PinSelectorPanel: React.FC<PinSelectorPanelProps> = ({ state, setSt
           ledPins={state.led.pins} 
           motorPin={state.motor.pin} 
           sensorPin={state.sync.sensorPin} 
+          onPinClick={handleBoardPinClick}
         />
       </div>
 

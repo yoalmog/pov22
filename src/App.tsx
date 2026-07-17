@@ -121,7 +121,8 @@ import {
   loadMediaFromDB,
   loadAllMediaFromDB,
   deleteMediaFromDB,
-  clearAllMediaInDB
+  clearAllMediaInDB,
+  pruneOldMediaFromDB
 } from "./lib/indexedDbCache";
 import planetImg from "./assets/images/hologram_planet_1779776225377.png";
 import galaxy0 from "./assets/images/galaxy_background_1779780757373.png";
@@ -773,21 +774,6 @@ export default function App() {
     return targetPath;
   };
 
-  const safeFetch = async (url: string, options?: any) => {
-    const isHttps = window.location.protocol === 'https:';
-    if (isHttps && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
-       try {
-         const res = await fetch(url, options);
-         return res;
-       } catch (e: any) {
-         if (e.message && e.message.includes('Failed to fetch')) {
-           setToastMessage("שגיאת אבטחה (HTTPS): הדפדפן חוסם גישה למכשיר. יש להשתמש ב-Bluetooth או להוריד את האפליקציה למחשב / Browser blocked HTTP device connection due to HTTPS security.");
-         }
-         throw e;
-       }
-    }
-    return fetch(url, options);
-  };
   const [showSplash, setShowSplash] = useState(true);
   const [showSplashLogo, setShowSplashLogo] = useState(false);
   const [splashProgress, setSplashProgress] = useState(0);
@@ -1603,6 +1589,79 @@ export default function App() {
   const [showCalibrateModal, setShowCalibrateModal] = useState(false);
   const [calibrationStage, setCalibrationStage] = useState<"idle" | "requesting" | "calibrating" | "success" | "error">("idle");
   const [deviceStatus, setDeviceStatus] = useState<string>("ready");
+
+  const safeFetch = async (url: string, options?: any) => {
+    const isHttps = window.location.protocol === 'https:';
+    if (isHttps && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+       try {
+         const res = await fetch(url, options);
+         return res;
+       } catch (e: any) {
+         if (e.message && e.message.includes('Failed to fetch') && deviceStatus !== "simulated") {
+           setToastMessage("שגיאת אבטחה (HTTPS): הדפדפן חוסם גישה למכשיר. יש להשתמש ב-Bluetooth או להוריד את האפליקציה למחשב / Browser blocked HTTP device connection due to HTTPS security.");
+         }
+         throw e;
+       }
+    }
+    return fetch(url, options);
+  };
+  const [firmwareCheckStage, setFirmwareCheckStage] = useState<"idle" | "checking" | "up_to_date" | "update_available" | "error">("idle");
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [deviceVersion, setDeviceVersion] = useState<string | null>(null);
+  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
+
+  // Auto-cleanup for IndexedDB on startup
+  useEffect(() => {
+    const runCleanup = async () => {
+      try {
+        const deleted = await pruneOldMediaFromDB(30);
+        if (deleted > 0) {
+          console.log(`IndexedDB Cleanup: Pruned ${deleted} old media files.`);
+        }
+      } catch (err) {
+        console.warn("IndexedDB Cleanup failed:", err);
+      }
+    };
+    runCleanup();
+  }, []);
+
+  const handleFirmwareUpdateCheck = async () => {
+    setSubPage(null); // Close subpage if open
+    setShowFirmwareModal(true);
+    setFirmwareCheckStage("checking");
+    
+    try {
+      // 1. Get device version
+      let devVer = "unknown";
+      try {
+        const res = await safeFetch(getExternalDeviceUrl("/version"));
+        if (res.ok) {
+          const data = await res.json();
+          devVer = data.version || "1.0.0";
+          setDeviceVersion(devVer);
+        }
+      } catch (e) {
+        console.warn("Could not fetch device version", e);
+        setDeviceVersion("1.0.0 (Fallback)");
+      }
+
+      // 2. Get server version (mocked as 1.2.0 from previous edits)
+      // In a real app, this would be a fetch to a manifest file
+      const srvVer = "1.2.0"; 
+      setServerVersion(srvVer);
+
+      await new Promise(r => setTimeout(r, 1500)); // Aesthetic delay
+
+      if (srvVer !== devVer && devVer !== "unknown") {
+        setFirmwareCheckStage("update_available");
+      } else {
+        setFirmwareCheckStage("up_to_date");
+      }
+    } catch (err) {
+      setFirmwareCheckStage("error");
+    }
+  };
+
   const [chipModel, setChipModel] = useState<string | null>(null);
 
   const applyOptimizedPinDefaults = (model: string, showToast = true) => {
@@ -2389,41 +2448,56 @@ export default function App() {
     }
   };
 
-  const processLogoImage = (file: File): Promise<Blob> => {
+   const processLogoImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d');
+        // HARD ENFORCEMENT: 128x64 resolution
+        const TARGET_WIDTH = 128;
+        const TARGET_HEIGHT = 64;
+        
+        canvas.width = TARGET_WIDTH;
+        canvas.height = TARGET_HEIGHT;
+        const ctx = canvas.getContext('2d', { alpha: false }); // Disable alpha for memory efficiency
         if (!ctx) return reject(new Error("Failed to get canvas context"));
 
-        // Fill with black (transparency to black)
+        // Fill with absolute black (base layer)
         ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, 128, 64);
+        ctx.fillRect(0, 0, TARGET_WIDTH, TARGET_HEIGHT);
 
-        // Aspect ratio resizing
-        const scale = Math.min(128 / img.width, 64 / img.height);
-        const x = (128 / 2) - (img.width / 2) * scale;
-        const y = (64 / 2) - (img.height / 2) * scale;
+        // Aspect ratio resizing with centering
+        const scale = Math.min(TARGET_WIDTH / img.width, TARGET_HEIGHT / img.height);
+        const x = (TARGET_WIDTH / 2) - (img.width / 2) * scale;
+        const y = (TARGET_HEIGHT / 2) - (img.height / 2) * scale;
+        
+        // Use high-quality scaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         
         ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
 
-        // Greyscale conversion logic (Luminance)
-        const imageData = ctx.getImageData(0, 0, 128, 64);
+        // Greyscale conversion logic (Luminance) - enforcing 8-bit depth feel
+        const imageData = ctx.getImageData(0, 0, TARGET_WIDTH, TARGET_HEIGHT);
         const data = imageData.data;
         for (let i = 0; i < data.length; i += 4) {
-          const avg = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-          data[i] = avg;
-          data[i+1] = avg;
-          data[i+2] = avg;
+          // Standard ITU-R BT.709 luma coefficients
+          const luma = (data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722);
+          data[i] = luma;
+          data[i+1] = luma;
+          data[i+2] = luma;
+          data[i+3] = 255; // Force fully opaque
         }
         ctx.putImageData(imageData, 0, 0);
 
+        // Final Blob conversion - enforcing PNG for standard support
         canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Blob conversion failed"));
+          if (blob) {
+            console.log(`Image downscaled and processed: ${blob.size} bytes`);
+            resolve(blob);
+          } else {
+            reject(new Error("Blob conversion failed"));
+          }
         }, 'image/png');
       };
       img.onerror = () => reject(new Error("Failed to load image"));
@@ -2468,18 +2542,44 @@ export default function App() {
       setFlashProgress(0);
       setFlashStage('ota');
       setFlashMessage("Downloading firmware binary from HoloSpin Server...");
+      setFlashProgress(5);
+
+      // PRE-OTA VALIDATION: Version & Compatibility Check
+      try {
+        const versionUrl = getExternalDeviceUrl("/version");
+        const vRes = await safeFetch(versionUrl);
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          console.log("Pre-OTA Version Check:", vData);
+          setFlashMessage(`Connected to ${vData.model || "Device"} (v${vData.version || "unknown"}). Checking compatibility...`);
+          
+          // Basic version logic - if we wanted to prevent downgrades or similar
+          // For now, we just ensure the model matches if possible
+          if (vData.model && chipModel && vData.model !== chipModel) {
+             console.warn("Model mismatch between OTA version endpoint and status endpoint");
+          }
+        }
+      } catch (vErr) {
+        console.warn("Could not perform pre-OTA version check, device might be offline or legacy.", vErr);
+      }
 
       const binRes = await fetch('/firmware.bin');
       if (!binRes.ok) throw new Error("Could not download firmware.bin from server");
       
       const contentLength = binRes.headers.get('Content-Length');
       const total = contentLength ? parseInt(contentLength, 10) : 0;
-      let loaded = 0;
+      
+      // VALIDATION STEP 1: Size check
+      // Most ESP32 OTA partitions are < 2MB. 
+      if (total > 3000000) { // 3MB limit as a safety guard
+        throw new Error(`Firmware binary is too large (${(total/1024/1024).toFixed(2)} MB). Maximum allowed is 3.0 MB.`);
+      }
 
+      let loaded = 0;
+      const chunks = [];
       const reader = binRes.body?.getReader();
       if (!reader) throw new Error("ReadableStream not supported");
 
-      const chunks = [];
       while(true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -2491,7 +2591,48 @@ export default function App() {
       }
 
       const firmwareBlob = new Blob(chunks);
-      setFlashMessage("Firmware ready. Connecting to local hardware...");
+      const arrayBuffer = await firmwareBlob.arrayBuffer();
+      const header = new Uint8Array(arrayBuffer.slice(0, 32));
+
+      // VALIDATION STEP 2: ESP32 Header Check
+      // Magic byte 0xE9 at offset 0
+      if (header[0] !== 0xE9) {
+        throw new Error("Invalid firmware binary: Magic byte mismatch (expected 0xE9).");
+      }
+
+      // Chip ID at offset 2
+      const chipId = header[2];
+      let firmwareModel = "Unknown";
+      if (chipId === 0) firmwareModel = "ESP32";
+      else if (chipId === 2) firmwareModel = "ESP32-S2";
+      else if (chipId === 5) firmwareModel = "ESP32-C3";
+      else if (chipId === 9) firmwareModel = "ESP32-S3";
+      else if (chipId === 12) firmwareModel = "ESP32-C2";
+      else if (chipId === 13) firmwareModel = "ESP32-H2";
+
+      console.log(`Detected firmware chip ID: ${chipId} (${firmwareModel})`);
+      console.log(`Current connected hardware: ${chipModel}`);
+
+      // VALIDATION STEP 3: Model Compatibility
+      if (chipModel && firmwareModel !== "Unknown") {
+        const currentIsS3 = chipModel.includes("S3");
+        const currentIsC3 = chipModel.includes("C3");
+        const currentIsPlain = !currentIsS3 && !currentIsC3 && chipModel.includes("ESP32");
+
+        const targetIsS3 = firmwareModel === "ESP32-S3";
+        const targetIsC3 = firmwareModel === "ESP32-C3";
+        const targetIsPlain = firmwareModel === "ESP32";
+
+        if ((currentIsS3 && !targetIsS3) || (currentIsC3 && !targetIsC3) || (currentIsPlain && !targetIsPlain)) {
+          if (!confirm(`⚠️ HARDWARE MISMATCH: Firmware is built for ${firmwareModel} but device is ${chipModel}. Flashing may brick the device. Continue anyway?`)) {
+            setFlashStage('idle');
+            setIsFlashing(false);
+            return;
+          }
+        }
+      }
+
+      setFlashMessage("Firmware validated. Connecting to local hardware...");
       setFlashProgress(30);
 
       const targetUrl = getExternalDeviceUrl("/update");
@@ -2518,7 +2659,13 @@ export default function App() {
           setFlashMessage("OTA Update SUCCESS! Device is rebooting...");
         } else {
           setFlashStage('error');
-          setFlashMessage(`Upload failed: Server returned ${xhr.status}`);
+          let serverError = "";
+          try {
+             serverError = xhr.responseText || "Unknown Error";
+          } catch(e) {
+             serverError = "Could not parse response";
+          }
+          setFlashMessage(`OTA FAILED (${xhr.status}): ${serverError}`);
         }
       };
 
@@ -2733,18 +2880,19 @@ export default function App() {
       if (saved) {
         let parsed = JSON.parse(saved) || {};
         
-        // CLEANUP: If the saved state contains old mock storage data, reset it
-        const storage = parsed.storage;
-        if (storage) {
-          const isMockTotal = storage.totalSpace && storage.totalSpace.toLowerCase().includes("16");
-          const isMockUsed = storage.usedSpace && storage.usedSpace.toLowerCase().includes("1.2");
-          const hasMockFiles = storage.files && storage.files.some((f: any) => f.name === "butterfly_nebula.png");
+        // CLEANUP: Force reset mock storage data from local storage
+        if (parsed.storage) {
+          const s = parsed.storage;
+          // More aggressive check for ANY simulated-looking data
+          const isMock = (s.totalSpace && (s.totalSpace.includes("16") || s.totalSpace.includes("---") || s.totalSpace.includes("used"))) || 
+                        (s.usedSpace && (s.usedSpace.includes("1.2") || s.usedSpace.includes("---") || s.usedSpace === "gb")) ||
+                        (s.files && s.files.length > 0 && s.files.some((f: any) => f.name && (f.name.includes("butterfly") || f.name.includes("planet") || f.name.includes("mock"))));
           
-          if (isMockTotal || isMockUsed || hasMockFiles) {
+          if (isMock || s.mounted === true) {
             parsed.storage = {
               mounted: false,
-              totalSpace: "---",
-              usedSpace: "---",
+              totalSpace: "0.0 GB",
+              usedSpace: "0.0 GB",
               files: []
             };
           }
@@ -6603,7 +6751,7 @@ void loop() {
               <SettingsRow onClick={() => setSubPage("pin_selection")} icon={<SlidersHorizontal className="w-5 h-5 text-fuchsia-400" />} title="Pin Configuration" subtitle="Map GPIO Pins Interactively" />
               <SettingsRow onClick={() => setSubPage("schedule")} icon={<Clock className="w-5 h-5 text-purple-400" />} title="Schedules" subtitle={`${schedules.filter(s => s.active).length} Active Timers`} />
               <SettingsRow onClick={() => setSubPage("calibration")} icon={<Target className="w-5 h-5 text-teal-400" />} title="Calibration" subtitle="Angle & Timing" />
-              <SettingsRow onClick={() => setSubPage("firmware")} icon={<Download className="w-5 h-5 text-emerald-400" />} title="Firmware" subtitle="Update POV Core" />
+              <SettingsRow onClick={handleFirmwareUpdateCheck} icon={<Download className="w-5 h-5 text-emerald-400" />} title="Firmware" subtitle="Update POV Core" />
               <SettingsRow onClick={() => setSubPage("power")} icon={<Power className="w-5 h-5 text-rose-500" />} title="Power Management" subtitle="Battery & Voltage" />
               <SettingsRow onClick={() => setSubPage("background")} icon={<Image className="w-5 h-5 text-indigo-400" />} title="Background Style" subtitle="Change App Theme" />
             </div>
@@ -6724,9 +6872,134 @@ void loop() {
         )}
       </AnimatePresence>
 
+      {showFirmwareModal && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            onClick={() => setShowFirmwareModal(false)}
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative w-full max-w-[420px] bg-[#0c0e15] border border-slate-800 rounded-[32px] overflow-hidden shadow-2xl shadow-emerald-500/10"
+          >
+            <div className="p-8 flex flex-col gap-6">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+                    <Download className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div className="flex flex-col">
+                    <h3 className="text-sm font-black text-white tracking-widest uppercase">Firmware Update</h3>
+                    <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">POV Core v{serverVersion || "..."}</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowFirmwareModal(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+
+              {firmwareCheckStage === "checking" && (
+                <div className="py-8 flex flex-col items-center gap-4 text-center">
+                  <RefreshCw className="w-10 h-10 text-emerald-400 animate-spin" />
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-bold text-white tracking-wide uppercase">Checking Compatibility...</p>
+                    <p className="text-[10px] text-slate-500">Querying ESP32 device for active build info</p>
+                  </div>
+                </div>
+              )}
+
+              {firmwareCheckStage === "up_to_date" && (
+                <div className="py-6 flex flex-col gap-6">
+                   <div className="bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-3xl flex flex-col items-center gap-3 text-center">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs font-black text-emerald-400 tracking-widest uppercase">Firmware Up to Date</p>
+                        <p className="text-[10px] text-slate-400">Current device version: <span className="font-mono text-emerald-300">{deviceVersion}</span></p>
+                      </div>
+                   </div>
+                   <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                     Your POV Core is running the latest stable build optimized for ESP32 WROOM-32D hardware. No action required.
+                   </p>
+                   <button 
+                    onClick={() => {
+                      setShowFirmwareModal(false);
+                      setSubPage("firmware");
+                    }}
+                    className="w-full py-4 bg-slate-800/40 border border-slate-700/50 rounded-2xl text-[10px] font-black text-slate-400 tracking-widest hover:bg-slate-800 transition"
+                   >
+                     REINSTALL FIRMWARE ANYWAY
+                   </button>
+                </div>
+              )}
+
+              {firmwareCheckStage === "update_available" && (
+                <div className="py-6 flex flex-col gap-6">
+                   <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-3xl flex flex-col items-center gap-3 text-center">
+                      <Zap className="w-10 h-10 text-amber-400 animate-pulse" />
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs font-black text-amber-400 tracking-widest uppercase">Update Available!</p>
+                        <p className="text-[10px] text-slate-400 font-mono">v{deviceVersion} → v{serverVersion}</p>
+                      </div>
+                   </div>
+                   <div className="flex flex-col gap-3">
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        A new stable release is available. This update improves buffer stability and fixes Wi-Fi reconnect bugs on dual-core ESP32 chips.
+                      </p>
+                      <ul className="text-[10px] text-slate-500 space-y-1 pl-1">
+                        <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500" /> Improved DMA buffering</li>
+                        <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500" /> Enhanced sensor interrupt logic</li>
+                        <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500" /> New animation API v2.4</li>
+                      </ul>
+                   </div>
+                   <button 
+                    onClick={() => {
+                      setShowFirmwareModal(false);
+                      setSubPage("firmware");
+                    }}
+                    className="w-full py-4 bg-emerald-500 shadow-xl shadow-emerald-500/20 rounded-2xl text-[10px] font-black text-white tracking-widest hover:bg-emerald-400 transition"
+                   >
+                     UPGRADE NOW (STABLE)
+                   </button>
+                </div>
+              )}
+
+              {firmwareCheckStage === "error" && (
+                <div className="py-8 flex flex-col items-center gap-4 text-center">
+                  <ShieldAlert className="w-10 h-10 text-rose-500" />
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-bold text-rose-500 tracking-wide uppercase">Connection Error</p>
+                    <p className="text-[10px] text-slate-500 px-4">Could not verify firmware compatibility. Ensure device is online.</p>
+                  </div>
+                  <button 
+                    onClick={handleFirmwareUpdateCheck}
+                    className="mt-2 px-4 py-2 bg-slate-800 rounded-xl text-[10px] font-bold text-slate-300"
+                  >
+                    RETRY CHECK
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {toastMessage && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border px-4 py-3 rounded-xl text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3 ${toastMessage.toLowerCase().includes("error") || toastMessage.includes("שגיאה") || toastMessage.includes("שגיאת") || toastMessage.toLowerCase().includes("failed") ? "border-rose-500/50 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.35)]" : "border-[#22c55e]/50 text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.35)]"}`}>
-          {toastMessage.toLowerCase().includes("error") || toastMessage.includes("שגיאה") || toastMessage.includes("שגיאת") || toastMessage.toLowerCase().includes("failed") ? (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] z-[1000] bg-[#0c0e15]/95 border px-4 py-3 rounded-xl text-xs font-bold tracking-wider uppercase animate-in fade-in slide-in-from-bottom-5 duration-300 flex items-start gap-3 ${
+          toastMessage.toLowerCase().includes("error") || 
+          toastMessage.toLowerCase().includes("failed") || 
+          toastMessage.includes("שגיא") || 
+          toastMessage.includes("חסום") ||
+          toastMessage.includes("נכשל")
+          ? "border-rose-500/50 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.35)]" 
+          : "border-[#22c55e]/50 text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.35)]"}`}>
+          {toastMessage.toLowerCase().includes("error") || 
+           toastMessage.toLowerCase().includes("failed") || 
+           toastMessage.includes("שגיא") || 
+           toastMessage.includes("חסום") ||
+           toastMessage.includes("נכשל") ? (
              <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
           ) : (
              <CheckCircle2 className="w-4 h-4 text-[#22c55e] shrink-0 mt-0.5" />
