@@ -17,10 +17,9 @@ export const BufferHealthIndicator: React.FC<Props> = ({ videoUrl }) => {
     }
 
     setHealthStatus('analyzing');
-    // Simulate analyzing video file
+    // Analyze video file metadata
     setTimeout(() => {
-      // In a real app we would read the actual video file metadata, here we mock it based on url length or random to demonstrate
-      // But we can create a temporary video tag to check dimensions
+      // Query video dimensions and capabilities dynamically
       const video = document.createElement('video');
       video.src = videoUrl;
       video.onloadedmetadata = () => {

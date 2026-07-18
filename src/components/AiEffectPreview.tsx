@@ -127,7 +127,7 @@ export const AiEffectPreview: React.FC<AiEffectPreviewProps> = ({
 
           ctx.fillStyle = color;
           
-          // Draw simulated glowing pixel dot
+          // Draw glowing pixel dot
           ctx.beginPath();
           ctx.arc(px, py, 1.25, 0, Math.PI * 2);
           ctx.fill();

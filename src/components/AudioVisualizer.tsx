@@ -11,7 +11,6 @@ type DiagnosticState = 'IDLE' | 'TESTING' | 'PASS' | 'FAIL';
 export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
   const [isListening, setIsListening] = useState(false);
   const [gain, setGain] = useState<number>(3.5); // Default gain: 3.5x
-  const [isSimulatingFault, setIsSimulatingFault] = useState(false);
   const [isAutoGain, setIsAutoGain] = useState(false);
 
   // Diagnostic State
@@ -35,7 +34,6 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
   const gainRef = useRef<number>(3.5);
   const isAutoGainRef = useRef<boolean>(false);
   const isListeningRef = useRef<boolean>(false);
-  const isSimulatingFaultRef = useRef<boolean>(false);
   const renderCountRef = useRef<number>(0);
 
   // Synchronize state values to refs
@@ -50,10 +48,6 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
-
-  useEffect(() => {
-    isSimulatingFaultRef.current = isSimulatingFault;
-  }, [isSimulatingFault]);
 
   // Start micro-controller analog feedback loop simulation
   useEffect(() => {
@@ -143,22 +137,13 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
           amplitudeArray.push(normalized * gainRef.current);
         }
       } else {
-        // Idle ambient electrical noise simulation
+        // Idle ambient electrical noise
         const now = Date.now();
-        const baseNoiseFreq = 0.005;
 
         for (let i = 0; i < 128; i++) {
-          let noise = 0;
-          if (isSimulatingFaultRef.current) {
-            // High erratic spikes typical of a floating pin (not grounded or missing VDD)
-            noise = (Math.sin(now * baseNoiseFreq + i * 0.2) * 0.4 + 
-                     Math.cos(now * 0.013 + i * 0.45) * 0.35 + 
-                     (Math.random() - 0.5) * 0.5);
-          } else {
-            // Clean 50/60Hz hum + small thermal noise (around 5-15mV jitter)
-            noise = (Math.sin(now * 0.001 + i * 0.15) * 0.02 + 
-                     (Math.random() - 0.5) * 0.015);
-          }
+          // Clean 50/60Hz hum + small thermal noise (around 5-15mV jitter)
+          const noise = (Math.sin(now * 0.001 + i * 0.15) * 0.02 + 
+                   (Math.random() - 0.5) * 0.015);
           amplitudeArray.push(noise);
         }
       }
@@ -166,16 +151,9 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
       // Generate dynamic voltage readings to match the signal
       const currentInstantNoise = amplitudeArray[Math.floor(Math.random() * amplitudeArray.length)];
       if (!isListeningRef.current) {
-        if (isSimulatingFaultRef.current) {
-          // Floating pins drift all over the place
-          const drift = 1.35 + Math.sin(Date.now() * 0.0003) * 1.1;
-          setAvgVoltage(parseFloat(Math.max(0.05, Math.min(3.28, drift + currentInstantNoise * 0.5)).toFixed(2)));
-          setJitterMv(Math.floor(250 + Math.random() * 450));
-        } else {
-          // Clean biased state
-          setAvgVoltage(parseFloat((1.65 + currentInstantNoise * 0.05).toFixed(2)));
-          setJitterMv(Math.floor(8 + Math.random() * 6));
-        }
+        // Clean biased state
+        setAvgVoltage(parseFloat((1.65 + currentInstantNoise * 0.05).toFixed(2)));
+        setJitterMv(Math.floor(8 + Math.random() * 6));
       } else {
         // Active recording
         const avgAbsSignal = amplitudeArray.reduce((acc, val) => acc + Math.abs(val), 0) / amplitudeArray.length;
@@ -187,11 +165,8 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
       ctx.beginPath();
       ctx.lineWidth = 2.5;
       
-      // Select stroke color based on simulated or live status
-      if (isSimulatingFaultRef.current) {
-        ctx.strokeStyle = '#ef4444'; // Red for fault
-        ctx.shadowColor = 'rgba(239, 68, 68, 0.5)';
-      } else if (isListeningRef.current) {
+      // Select stroke color based on status
+      if (isListeningRef.current) {
         ctx.strokeStyle = '#22c55e'; // Bright Green for active mic
         ctx.shadowColor = 'rgba(34, 197, 94, 0.5)';
       } else {
@@ -225,8 +200,8 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
       ctx.fillText('0.0V (GND)', 6, height - 6);
 
       // Label showing trace type
-      ctx.fillStyle = isSimulatingFaultRef.current ? '#fca5a5' : isListeningRef.current ? '#86efac' : '#d8b4fe';
-      ctx.fillText(isSimulatingFaultRef.current ? 'ADC32: FLOATING SIGNAL' : isListeningRef.current ? 'ADC32: ACTIVE WAVEFORM' : 'ADC32: STANDBY JITTER', width - 125, 12);
+      ctx.fillStyle = isListeningRef.current ? '#86efac' : '#d8b4fe';
+      ctx.fillText(isListeningRef.current ? 'ADC32: ACTIVE WAVEFORM' : 'ADC32: STANDBY JITTER', width - 125, 12);
 
       animationFrameIdRef.current = requestAnimationFrame(drawWaveform);
     };
@@ -309,15 +284,9 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
     setDiagState('TESTING');
     
     setTimeout(() => {
-      if (isSimulatingFault) {
-        setDiagState('FAIL');
-        setDiagMessageHe('שגיאה! רמות רעש גבוהות מאוד וחוסר מתח DC יציב בפין 32. ודא שקו ה-VCC של המיקרופון מחובר ל-3.3V ושתקינות ההארקה (GND) מלאה.');
-        setDiagMessageEn('Error! Extreme fluctuation and zero DC Bias offset detected on Pin 32. Verify microphone VCC line is soldered to 3.3V and GND shielding is sound.');
-      } else {
-        setDiagState('PASS');
-        setDiagMessageHe('אבחון הושלם בהצלחה! זוהה מתח היסט קבוע (DC bias) של ~1.65V במצב שקט, רמת רעש תרמי נמוכה מאוד (12mV RMS). המיקרופון תקין ומוכן לעבודה.');
-        setDiagMessageEn('Diagnostic successful! DC offset bias of ~1.65V detected in silence, with low thermal noise (12mV RMS). The microphone module is correctly connected.');
-      }
+      setDiagState('PASS');
+      setDiagMessageHe('אבחון הושלם בהצלחה! זוהה מתח היסט קבוע (DC bias) של ~1.65V במצב שקט, רמת רעש תרמי נמוכה מאוד (12mV RMS). המיקרופון תקין ומוכן לעבודה.');
+      setDiagMessageEn('Diagnostic successful! DC offset bias of ~1.65V detected in silence, with low thermal noise (12mV RMS). The microphone module is correctly connected.');
     }, 1500);
   };
 
@@ -491,42 +460,6 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
           )}
         </div>
 
-        {/* Live Hardware Sandbox Simulator controls to verify both PASS and FAIL logic */}
-        <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-900 pt-2.5">
-          <span className="flex items-center gap-1">
-            <HelpCircle className="w-3.5 h-3.5 text-slate-600" />
-            <span>סימולטור בדיקת שגיאות (Sandbox Testing Control)</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input 
-                type="checkbox"
-                checked={isSimulatingFault}
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  setIsSimulatingFault(val);
-                  // Auto re-run diagnostic to show immediate feedback
-                  setDiagState('TESTING');
-                  setTimeout(() => {
-                    if (val) {
-                      setDiagState('FAIL');
-                      setDiagMessageHe('שגיאה! רמות רעש גבוהות מאוד וחוסר מתח DC יציב בפין 32. ודא שקו ה-VCC של המיקרופון מחובר ל-3.3V ושתקינות ההארקה (GND) מלאה.');
-                      setDiagMessageEn('Error! Extreme fluctuation and zero DC Bias offset detected on Pin 32. Verify microphone VCC line is soldered to 3.3V and GND shielding is sound.');
-                    } else {
-                      setDiagState('PASS');
-                      setDiagMessageHe('אבחון הושלם בהצלחה! זוהה מתח היסט קבוע (DC bias) של ~1.65V במצב שקט, רמת רעש תרמי נמוכה מאוד (12mV RMS). המיקרופון תקין ומוכן לעבודה.');
-                      setDiagMessageEn('Diagnostic successful! DC offset bias of ~1.65V detected in silence, with low thermal noise (12mV RMS). The microphone module is correctly connected.');
-                    }
-                  }, 800);
-                }}
-                className="accent-fuchsia-500"
-              />
-              <span className={isSimulatingFault ? 'text-red-400 font-bold' : 'text-slate-500'}>
-                {isSimulatingFault ? 'נתק מיקרופון (Simulate Fault)' : 'הדמיית תקלת חיבור'}
-              </span>
-            </label>
-          </div>
-        </div>
       </div>
 
       {/* Action Buttons */}

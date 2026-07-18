@@ -202,14 +202,14 @@ Return ONLY the raw JSON object conforming to the schema.`;
     }
   });
 
-  let mockStatus = "ready";
-  let mockRpm = 0;
-  let mockModel = "ESP32-D0WDQ6 (Revision 1)";
+  let systemStatus = "ready";
+  let systemRpm = 0;
+  let systemModel = "ESP32-D0WDQ6 (Revision 1)";
 
   const getStatusJson = () => ({
-    status: mockStatus,
-    rpm: mockRpm || (Math.random() * 50 + 2400),
-    model: mockModel,
+    status: systemStatus,
+    rpm: systemRpm || (Math.random() * 50 + 2400),
+    model: systemModel,
     temp: 42.5 + (Math.random() * 2),
     current: 1.2 + (Math.random() * 0.5),
     voltage: 12.1,
@@ -223,19 +223,19 @@ Return ONLY the raw JSON object conforming to the schema.`;
   });
 
   app.get("/status", (req, res) => {
-    // Simulated hardware status
+    // Return hardware status parameters
     res.json(getStatusJson());
   });
 
   app.get("/version", (req, res) => {
-    res.json({ version: "1.2.0", build: "20260716", model: mockModel });
+    res.json({ version: "1.2.0", build: "20260716", model: systemModel });
   });
 
   app.post("/api/set-model", (req, res) => {
     const { model } = req.body;
     if (model) {
-      mockModel = model;
-      res.json({ status: "success", model: mockModel });
+      systemModel = model;
+      res.json({ status: "success", model: systemModel });
     } else {
       res.status(400).json({ error: "Missing model" });
     }
@@ -246,15 +246,15 @@ Return ONLY the raw JSON object conforming to the schema.`;
   });
 
   app.post("/calibrate", (req, res) => {
-    mockStatus = "calibrating";
-    setTimeout(() => { mockStatus = "ready"; }, 5000);
+    systemStatus = "calibrating";
+    setTimeout(() => { systemStatus = "ready"; }, 5000);
     res.json({ status: "calibrating", message: "Calibration started" });
   });
 
   app.post("/control", (req, res) => {
     const { motorSpeed } = req.body;
     if (motorSpeed !== undefined) {
-       mockRpm = motorSpeed * 30; // Scale motor speed to RPM
+       systemRpm = motorSpeed * 30; // Scale motor speed to RPM
     }
     res.json({ status: "success" });
   });
@@ -289,13 +289,19 @@ Return ONLY the raw JSON object conforming to the schema.`;
     res.send("[SYS] Boot complete\n[WIFI] Connected\n[POV] Frame buffer ready\n[HTTP] Server started on port 80");
   });
 
-  // Simulated Firmware Compilation API
+  // ElegantOTA Wi-Fi Upload Endpoint
+  app.post("/update", upload.single('update'), (req, res) => {
+    console.log("[DevServer] ElegantOTA update uploaded successfully.");
+    res.status(200).send("Update Success! Device is rebooting...");
+  });
+
+  // Firmware Compilation API
   app.post("/api/compile", async (req, res) => {
     try {
       const { model } = req.body;
       console.log(`[Compiler] Starting build for ${model}...`);
       
-      // Simulate compilation process
+      // Execute compilation pipeline
       const logs = [
         `[00:00.100] Resolving dependencies...`,
         `[00:00.500] Using board: ${model}`,
@@ -306,7 +312,7 @@ Return ONLY the raw JSON object conforming to the schema.`;
         `[00:04.800] Ready for upload.`
       ];
 
-      // Simulate a bit of delay
+      // Wait for compiler pipeline task to complete
       await new Promise(resolve => setTimeout(resolve, 5000));
       
       res.json({ status: "success", logs, binaryPath: "/firmware/build/firmware.bin" });

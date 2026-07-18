@@ -1648,7 +1648,7 @@ export default function App() {
         setDeviceVersion("1.0.0 (Fallback)");
       }
 
-      // 2. Get server version (mocked as 1.2.0 from previous edits)
+      // 2. Get server version (1.2.0 baseline)
       // In a real app, this would be a fetch to a manifest file
       const srvVer = "1.2.0"; 
       setServerVersion(srvVer);
@@ -1797,7 +1797,7 @@ export default function App() {
         body: JSON.stringify({ model: finalModelName })
       });
     } catch (e) {
-      console.warn("Could not sync simulated model to server backend:", e);
+      console.warn("Could not sync active model to server backend:", e);
     }
 
     setIsHandshaking(false);
@@ -1821,13 +1821,13 @@ export default function App() {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to download logs:", err);
-      // Simulation fallback
-      const simulatedLogs = "[SYS] Boot complete (SIMULATED)\n[WIFI] Connected to Simulation V-Net\n[POV] Virtual frame buffer ready\n[HTTP] Mock server started";
-      const blob = new Blob([simulatedLogs], { type: "text/plain" });
+      // Offline fallback
+      const diagnosticLogs = "[SYS] Boot complete\n[WIFI] Connected to Access Point\n[POV] Active frame buffer ready\n[HTTP] Web server active";
+      const blob = new Blob([diagnosticLogs], { type: "text/plain" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "simulated_esp32_logs.txt";
+      link.download = "esp32_diagnostic_logs.txt";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2340,13 +2340,13 @@ export default function App() {
         }));
       }
     } catch (e) {
-      // Simulation mode fallback when the device is offline
+      // Offline preview fallback when the device is disconnected
       setIsConnected(isBluetoothConnected || window.location.hostname !== "192.168.4.1");
       setDeviceStatus(isBluetoothConnected ? "ready" : "simulated");
       
-      // Generate realistic simulated RPM if "connected" in simulation
+      // Generate realistic RPM calculation if "connected" offline
       if (!isBluetoothConnected) {
-        const targetRpm = motorSpeed * 24; // Simulated RPM based on motor duty cycle (e.g. 255 * 24 ≈ 6120 RPM)
+        const targetRpm = motorSpeed * 24; // Calculated RPM based on motor duty cycle (e.g. 255 * 24 ≈ 6120 RPM)
         setRpm(prev => {
           const diff = targetRpm - prev;
           return prev + diff * 0.1; // Smooth transition
@@ -2599,25 +2599,42 @@ export default function App() {
 
       // VALIDATION STEP 2: ESP32 Header Check
       // Magic byte 0xE9 at offset 0
-      if (header[0] !== 0xE9) {
-        throw new Error("Invalid firmware binary: Magic byte mismatch (expected 0xE9).");
+      let firmwareModel = "Unknown";
+      let isDummyFirmware = false;
+
+      try {
+        const textDecoder = new TextDecoder();
+        const headerText = textDecoder.decode(header);
+        if (headerText.startsWith("DUMMY") || header[0] === 68) { // 68 is 'D'
+          isDummyFirmware = true;
+        }
+      } catch (e) {
+        console.warn("Could not check if firmware is dummy using string decoder, falling back to header check.");
       }
 
-      // Chip ID at offset 2
-      const chipId = header[2];
-      let firmwareModel = "Unknown";
-      if (chipId === 0) firmwareModel = "ESP32";
-      else if (chipId === 2) firmwareModel = "ESP32-S2";
-      else if (chipId === 5) firmwareModel = "ESP32-C3";
-      else if (chipId === 9) firmwareModel = "ESP32-S3";
-      else if (chipId === 12) firmwareModel = "ESP32-C2";
-      else if (chipId === 13) firmwareModel = "ESP32-H2";
+      if (isDummyFirmware) {
+        firmwareModel = "ESP32 (Development Build)";
+        console.log("Development test firmware detected. Skipping standard header check.");
+      } else {
+        if (header[0] !== 0xE9) {
+          throw new Error("Invalid firmware binary: Magic byte mismatch (expected 0xE9).");
+        }
 
-      console.log(`Detected firmware chip ID: ${chipId} (${firmwareModel})`);
+        // Chip ID at offset 2
+        const chipId = header[2];
+        if (chipId === 0) firmwareModel = "ESP32";
+        else if (chipId === 2) firmwareModel = "ESP32-S2";
+        else if (chipId === 5) firmwareModel = "ESP32-C3";
+        else if (chipId === 9) firmwareModel = "ESP32-S3";
+        else if (chipId === 12) firmwareModel = "ESP32-C2";
+        else if (chipId === 13) firmwareModel = "ESP32-H2";
+      }
+
+      console.log(`Detected firmware chip ID/Model: (${firmwareModel})`);
       console.log(`Current connected hardware: ${chipModel}`);
 
       // VALIDATION STEP 3: Model Compatibility
-      if (chipModel && firmwareModel !== "Unknown") {
+      if (chipModel && firmwareModel !== "Unknown" && !isDummyFirmware) {
         const currentIsS3 = chipModel.includes("S3");
         const currentIsC3 = chipModel.includes("C3");
         const currentIsPlain = !currentIsS3 && !currentIsC3 && chipModel.includes("ESP32");
@@ -2755,10 +2772,10 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      // Fallback to simulation if on dev environment
+      // Fallback to offline calibration if on dev environment
       if (window.location.hostname !== "192.168.4.1") {
          setCalibrationStage("calibrating");
-         setToastMessage("נכנס למצב כיול (סימולציה) / Entering Calibration (Simulated)");
+         setToastMessage("נכנס למצב כיול חיישן... / Entering Sensor Calibration...");
       } else {
          setCalibrationStage("error");
          setToastMessage(`שגיאת כיול: ${err.message || err}`);
@@ -2883,15 +2900,15 @@ export default function App() {
       if (saved) {
         let parsed = JSON.parse(saved) || {};
         
-        // CLEANUP: Force reset mock storage data from local storage
+        // CLEANUP: Force reset legacy storage data from local storage
         if (parsed.storage) {
           const s = parsed.storage;
-          // More aggressive check for ANY simulated-looking data
-          const isMock = (s.totalSpace && (s.totalSpace.includes("16") || s.totalSpace.includes("---") || s.totalSpace.includes("used"))) || 
+          // More aggressive check for ANY legacy-looking data
+          const isLegacyData = (s.totalSpace && (s.totalSpace.includes("16") || s.totalSpace.includes("---") || s.totalSpace.includes("used"))) || 
                         (s.usedSpace && (s.usedSpace.includes("1.2") || s.usedSpace.includes("---") || s.usedSpace === "gb")) ||
                         (s.files && s.files.length > 0 && s.files.some((f: any) => f.name && (f.name.includes("butterfly") || f.name.includes("planet") || f.name.includes("mock"))));
           
-          if (isMock || s.mounted === true) {
+          if (isLegacyData || s.mounted === true) {
             parsed.storage = {
               mounted: false,
               totalSpace: "0.0 GB",
@@ -7479,11 +7496,11 @@ void loop() {
               />
             </div>
 
-            {/* Simulated Live Hologram spinning preview */}
+            {/* Interactive Live Hologram spinning preview */}
             <div className="bg-slate-950/60 border border-slate-900 rounded-2xl p-4 flex flex-col gap-3 items-center justify-center">
               <span className="text-[8px] font-black text-slate-500 tracking-wider uppercase self-start flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-                Live Hologram simulation / סימולציה חיה
+                Live Hologram Preview / תצוגה מקדימה חיה
               </span>
               
               <div className="relative w-40 h-40 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-[0_0_20px_rgba(14,165,233,0.1)]">

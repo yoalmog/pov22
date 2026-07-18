@@ -180,7 +180,7 @@ export const LivePaint: React.FC<Props> = ({ onFrameUpdate }) => {
         pCtx.fillRect(-bladeW / 2, -radius, bladeW, radius * 2);
         pCtx.strokeRect(-bladeW / 2, -radius, bladeW, radius * 2);
 
-        // Draw small simulated yellow/cyan LEDs on the static blade
+        // Draw small yellow/cyan LEDs on the static blade
         pCtx.fillStyle = '#ffee32';
         for (let x = 12; x < radius - 5; x += 6) {
           pCtx.fillRect(x, -1, 2, 2);

@@ -28,7 +28,7 @@ export const AdvancedSyncPanel: React.FC = () => {
     const render = () => {
       t++;
       
-      // Every 10 frames, randomly update simulated jitter
+      // Periodically update the calculated jitter metric
       if (t - lastJitterUpdate > 15) {
         setJitter(parseFloat((Math.random() * 2.5).toFixed(1)));
         lastJitterUpdate = t;

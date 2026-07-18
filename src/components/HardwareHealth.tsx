@@ -104,7 +104,7 @@ export function HardwareHealth({
         let finalFetchUrl = fetchUrl;
         if (isHttps && fetchUrl.startsWith('http://') && !fetchUrl.includes('localhost') && !fetchUrl.includes('127.0.0.1')) {
            // We're on HTTPS and trying to hit HTTP local IP. This will fail with mixed content.
-           // In AI Studio, we fallback to relative if we know it's a mock, but if it's a real IP, it just fails.
+           // In AI Studio, we fallback to relative if running in the cloud development workspace, but if it's a real IP, it just fails.
         }
         const res = await fetch(finalFetchUrl, { signal: controller.signal });
         clearTimeout(id);
