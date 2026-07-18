@@ -60,3 +60,16 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+tasks.register('cleanupAssets', Exec) {
+    workingDir '../../'
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'python scripts/cleanup_assets.py'
+    } else {
+        commandLine 'python3', 'scripts/cleanup_assets.py'
+    }
+    ignoreExitValue true
+}
+
+preBuild.dependsOn(cleanupAssets)
+

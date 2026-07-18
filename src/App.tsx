@@ -111,6 +111,9 @@ import { Esp32Board } from "./components/Esp32Board";
 import { Gauge } from "./components/Gauge";
 import { AppWalkthrough } from "./components/AppWalkthrough";
 import { FirmwareStudio } from "./components/FirmwareStudio";
+
+const MemoizedHologramSimulator = memo(HologramSimulator);
+const MemoizedLedVisualizer = memo(LedVisualizer);
 import {
   savePresetToDB,
   loadPresetFromDB,
@@ -3330,7 +3333,7 @@ export default function App() {
             LED SETTINGS
           </h3>
 
-          <LedVisualizer 
+          <MemoizedLedVisualizer 
             arms={state.led.arms} 
             stripsPerArm={state.led.stripsPerArm} 
             strips={state.led.strips} 
@@ -6375,7 +6378,7 @@ void loop() {
                   animate={isApplyingPreset ? { scale: [1, 1.08, 1], rotate: [0, 5, -5, 0], filter: ['brightness(1)', 'brightness(1.8)', 'brightness(1)'] } : { scale: 1, rotate: 0 }}
                   transition={{ duration: 0.8, ease: "easeInOut" }}
                 >
-                  <HologramSimulator
+                  <MemoizedHologramSimulator
                     effect={activeEffect}
                     speed={motorSpeed}
                     brightness={brightness}
@@ -7485,7 +7488,7 @@ void loop() {
               
               <div className="relative w-40 h-40 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-[0_0_20px_rgba(14,165,233,0.1)]">
                 {/* Micro spinning layout for live preview */}
-                <HologramSimulator
+                <MemoizedHologramSimulator
                   effect={activeEffect}
                   speed={motorSpeed}
                   brightness={brightness}
