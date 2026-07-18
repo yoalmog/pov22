@@ -38,10 +38,6 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Repair Corrupted Image Assets
-        run: |
-          pip3 install Pillow
-          python3 repair_assets.py
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
