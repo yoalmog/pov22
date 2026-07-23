@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo, useCallback } from "react";
+import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from "react";
 // Triggering a small change to ensure the deployment/build pipeline picks up the latest assets.
 import { motion, AnimatePresence } from "motion/react";
 import { BleClient } from '@capacitor-community/bluetooth-le';
@@ -2290,14 +2290,11 @@ export default function App() {
   // Status polling
   const fetchStatus = async () => {
     if (!isSyncEnabled) {
-      setIsConnected(isBluetoothConnected || window.location.hostname !== "192.168.4.1");
-      setDeviceStatus(isBluetoothConnected ? "ready" : "simulated");
+      /* Note: Real status polling requires hardware connection over HTTP/Bluetooth. When sync is disabled, status reflects offline. */
+      setIsConnected(isBluetoothConnected);
+      setDeviceStatus(isBluetoothConnected ? "ready" : "disconnected");
       if (!isBluetoothConnected) {
-        const targetRpm = motorSpeed * 24;
-        setRpm(prev => {
-          const diff = targetRpm - prev;
-          return prev + diff * 0.1;
-        });
+        setRpm(0);
       }
       return;
     }
@@ -2340,26 +2337,11 @@ export default function App() {
         }));
       }
     } catch (e) {
-      // Offline preview fallback when the device is disconnected
-      setIsConnected(isBluetoothConnected || window.location.hostname !== "192.168.4.1");
-      setDeviceStatus(isBluetoothConnected ? "ready" : "simulated");
-      
-      // Generate realistic RPM calculation if "connected" offline
+      /* Note: Hardware disconnected or unreachable over HTTP endpoint /status. Real status is set to disconnected. */
+      setIsConnected(isBluetoothConnected);
+      setDeviceStatus(isBluetoothConnected ? "ready" : "disconnected");
       if (!isBluetoothConnected) {
-        const targetRpm = motorSpeed * 24; // Calculated RPM based on motor duty cycle (e.g. 255 * 24 ≈ 6120 RPM)
-        setRpm(prev => {
-          const diff = targetRpm - prev;
-          return prev + diff * 0.1; // Smooth transition
-        });
-      }
-      
-      // Auto-advance calibration in simulation mode
-      if (calibrationStage === "calibrating") {
-        const timer = setTimeout(() => {
-          setCalibrationStage("success");
-          setDeviceStatus("ready");
-        }, 3000);
-        return () => clearTimeout(timer);
+        setRpm(0);
       }
     }
   };
@@ -2772,14 +2754,9 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      // Fallback to offline calibration if on dev environment
-      if (window.location.hostname !== "192.168.4.1") {
-         setCalibrationStage("calibrating");
-         setToastMessage("נכנס למצב כיול חיישן... / Entering Sensor Calibration...");
-      } else {
-         setCalibrationStage("error");
-         setToastMessage(`שגיאת כיול: ${err.message || err}`);
-      }
+      /* Note: Hardware calibration requires active connection to ESP32 /calibrate endpoint. If unreachable, error stage is set. */
+      setCalibrationStage("error");
+      setToastMessage(`שגיאת כיול: ${err.message || err}`);
     }
   };
 
@@ -2972,6 +2949,69 @@ export default function App() {
       }
     }
   };
+
+  // Memoized configuration props to prevent re-renders of LedVisualizer & HologramSimulator during telemetry state updates
+  const ledConfigProps = useMemo(() => ({
+    arms: state.led.arms,
+    stripsPerArm: state.led.stripsPerArm,
+    strips: state.led.strips,
+    pins: state.led.pins,
+    activeEffect: activeEffect,
+    colorMode: colorMode,
+    baseColor: logoTintColor,
+    brightness: brightness,
+    aiEffectJs: aiEffectJs,
+  }), [state.led.arms, state.led.stripsPerArm, state.led.strips, state.led.pins, activeEffect, colorMode, logoTintColor, brightness, aiEffectJs]);
+
+  const mainHologramConfigProps = useMemo(() => ({
+    effect: activeEffect,
+    speed: motorSpeed,
+    brightness: brightness,
+    logoUrl: logoUrl,
+    povText: povText,
+    logoRotation: logoRotation,
+    logoTintColor: useLogoTint ? logoTintColor : null,
+    rainbowMode: colorMode === "random",
+    povTextAnimation: povTextAnimation,
+    effectSpeedRate: effectSpeedRate,
+    effectScale: effectScale,
+    effectComplexity: effectComplexity,
+    videoUrl: synthVideoUrl,
+    ledCount: state.led.ledsPerStrip,
+    kaleidoShape: kaleidoShape,
+    kaleidoLines: kaleidoLines,
+    kaleidoMorphSpeed: kaleidoMorphSpeed,
+    flameIntensity: flameIntensity,
+    aiEffectJs: aiEffectJs,
+    aiEffectCode: aiEffectCode,
+  }), [
+    activeEffect, motorSpeed, brightness, logoUrl, povText, logoRotation,
+    useLogoTint, logoTintColor, colorMode, povTextAnimation, effectSpeedRate,
+    effectScale, effectComplexity, synthVideoUrl, state.led.ledsPerStrip,
+    kaleidoShape, kaleidoLines, kaleidoMorphSpeed, flameIntensity, aiEffectJs, aiEffectCode
+  ]);
+
+  const miniHologramConfigProps = useMemo(() => ({
+    effect: activeEffect,
+    speed: motorSpeed,
+    brightness: brightness,
+    customColor: logoTintColor,
+    logoUrl: logoUrl,
+    povText: povText,
+    logoRotation: logoRotation,
+    logoTintColor: logoTintColor,
+    povTextAnimation: povTextAnimation,
+    effectSpeedRate: effectSpeedRate,
+    effectScale: effectScale,
+    effectComplexity: effectComplexity,
+    videoUrl: synthVideoUrl,
+    aiEffectJs: aiEffectJs,
+    aiEffectCode: aiEffectCode,
+  }), [
+    activeEffect, motorSpeed, brightness, logoTintColor, logoUrl, povText,
+    logoRotation, povTextAnimation, effectSpeedRate, effectScale, effectComplexity,
+    synthVideoUrl, aiEffectJs, aiEffectCode
+  ]);
 
   const renderHeader = () => {
     // Battery calculation widget using direct state variables instead of state.x to avoid NaN display
@@ -3350,17 +3390,7 @@ export default function App() {
             LED SETTINGS
           </h3>
 
-          <MemoizedLedVisualizer 
-            arms={state.led.arms} 
-            stripsPerArm={state.led.stripsPerArm} 
-            strips={state.led.strips} 
-            pins={state.led.pins} 
-            activeEffect={activeEffect}
-            colorMode={colorMode}
-            baseColor={logoTintColor}
-            brightness={brightness}
-            aiEffectJs={aiEffectJs}
-          />
+          <MemoizedLedVisualizer {...ledConfigProps} />
           <WiringGuide 
             pins={state.led.pins} 
             strips={state.led.strips} 
@@ -6395,28 +6425,7 @@ void loop() {
                   animate={isApplyingPreset ? { scale: [1, 1.08, 1], rotate: [0, 5, -5, 0], filter: ['brightness(1)', 'brightness(1.8)', 'brightness(1)'] } : { scale: 1, rotate: 0 }}
                   transition={{ duration: 0.8, ease: "easeInOut" }}
                 >
-                  <MemoizedHologramSimulator
-                    effect={activeEffect}
-                    speed={motorSpeed}
-                    brightness={brightness}
-                    logoUrl={logoUrl}
-                    povText={povText}
-                    logoRotation={logoRotation}
-                    logoTintColor={useLogoTint ? logoTintColor : null}
-                    rainbowMode={colorMode === "random"}
-                    povTextAnimation={povTextAnimation}
-                    effectSpeedRate={effectSpeedRate}
-                    effectScale={effectScale}
-                    effectComplexity={effectComplexity}
-                    videoUrl={synthVideoUrl}
-                    ledCount={state.led.ledsPerStrip}
-                    kaleidoShape={kaleidoShape}
-                    kaleidoLines={kaleidoLines}
-                    kaleidoMorphSpeed={kaleidoMorphSpeed}
-                    flameIntensity={flameIntensity}
-                    aiEffectJs={aiEffectJs}
-                    aiEffectCode={aiEffectCode}
-                  />
+                  <MemoizedHologramSimulator {...mainHologramConfigProps} />
                   <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent rounded-full pointer-events-none"></div>
                   <div className="absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.8)] pointer-events-none rounded-full"></div>
                 </motion.div>
@@ -7505,23 +7514,7 @@ void loop() {
               
               <div className="relative w-40 h-40 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-[0_0_20px_rgba(14,165,233,0.1)]">
                 {/* Micro spinning layout for live preview */}
-                <MemoizedHologramSimulator
-                  effect={activeEffect}
-                  speed={motorSpeed}
-                  brightness={brightness}
-                  customColor={logoTintColor}
-                  logoUrl={logoUrl}
-                  povText={povText}
-                  logoRotation={logoRotation}
-                  logoTintColor={logoTintColor}
-                  povTextAnimation={povTextAnimation}
-                  effectSpeedRate={effectSpeedRate}
-                  effectScale={effectScale}
-                  effectComplexity={effectComplexity}
-                  videoUrl={synthVideoUrl}
-                  aiEffectJs={aiEffectJs}
-                  aiEffectCode={aiEffectCode}
-                />
+                <MemoizedHologramSimulator {...miniHologramConfigProps} />
               </div>
 
               {/* AI Effect Preview static frame simulation */}

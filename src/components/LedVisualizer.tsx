@@ -12,7 +12,7 @@ interface Props {
   aiEffectJs?: string | null;
 }
 
-export const LedVisualizer: React.FC<Props> = ({ 
+export const LedVisualizer: React.FC<Props> = React.memo(({ 
   arms, 
   stripsPerArm, 
   strips, 
@@ -164,4 +164,4 @@ export const LedVisualizer: React.FC<Props> = ({
       </svg>
     </div>
   );
-};
+});

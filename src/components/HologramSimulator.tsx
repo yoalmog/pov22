@@ -24,7 +24,7 @@ interface HologramSimulatorProps {
   aiEffectCode?: string | null;
 }
 
-export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
+export const HologramSimulator: React.FC<HologramSimulatorProps> = React.memo(({
   effect = 'rainbow',
   speed = 80,
   brightness = 150,
@@ -3047,4 +3047,5 @@ export const HologramSimulator: React.FC<HologramSimulatorProps> = ({
        />
     </div>
   );
-};
+});
+

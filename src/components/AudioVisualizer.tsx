@@ -137,28 +137,23 @@ export const AudioVisualizer: React.FC<Props> = ({ onSyncParams }) => {
           amplitudeArray.push(normalized * gainRef.current);
         }
       } else {
-        // Idle ambient electrical noise
+        // Idle baseline state
         const now = Date.now();
-
         for (let i = 0; i < 128; i++) {
-          // Clean 50/60Hz hum + small thermal noise (around 5-15mV jitter)
-          const noise = (Math.sin(now * 0.001 + i * 0.15) * 0.02 + 
-                   (Math.random() - 0.5) * 0.015);
-          amplitudeArray.push(noise);
+          const sineSignal = Math.sin(now * 0.001 + i * 0.15) * 0.01;
+          amplitudeArray.push(sineSignal);
         }
       }
 
-      // Generate dynamic voltage readings to match the signal
-      const currentInstantNoise = amplitudeArray[Math.floor(Math.random() * amplitudeArray.length)];
+      /* Note: ESP32 ADC reference biased around 1.65V (half-scale 3.3V). Active recording measures real audio Web Audio API amplitude. */
+      const avgAbsSignal = amplitudeArray.reduce((acc, val) => acc + Math.abs(val), 0) / amplitudeArray.length;
       if (!isListeningRef.current) {
-        // Clean biased state
-        setAvgVoltage(parseFloat((1.65 + currentInstantNoise * 0.05).toFixed(2)));
-        setJitterMv(Math.floor(8 + Math.random() * 6));
+        setAvgVoltage(1.65);
+        setJitterMv(0);
       } else {
-        // Active recording
-        const avgAbsSignal = amplitudeArray.reduce((acc, val) => acc + Math.abs(val), 0) / amplitudeArray.length;
-        setAvgVoltage(parseFloat((1.65 + (Math.random() - 0.5) * 0.1).toFixed(2)));
-        setJitterMv(Math.floor(avgAbsSignal * 1200 + 10));
+        const measuredVoltage = 1.65 + (avgAbsSignal * 0.5);
+        setAvgVoltage(parseFloat(measuredVoltage.toFixed(2)));
+        setJitterMv(Math.floor(avgAbsSignal * 1200));
       }
 
       // Draw the neon ADC voltage waveform trace

@@ -71,14 +71,19 @@ export function HardwareHealth({
   useEffect(() => {
     if (healthData) {
       setHistory(prev => {
-        const rpm = healthData.rpm !== undefined ? healthData.rpm : (Math.random() * 200 + 1000);
+        /* Note: Hardware telemetry requires active ESP32 ADC/sensor measurements. Default values are set to 0 when hardware sensors are unequipped or unmeasured. */
+        const rpm = healthData.rpm ?? 0;
+        const current = healthData.current ?? 0;
+        const temp = healthData.temp ?? 0;
+        const voltage = healthData.voltage ?? 0;
+        const duty = rpm > 0 ? Math.min(100, (rpm / 3000) * 100) : 0;
         const newData = {
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          current: healthData.current !== undefined ? healthData.current : (Math.random() * 2 + 1), // Mock if missing for demo
-          temp: healthData.temp !== undefined ? healthData.temp : (30 + Math.random() * 10), // Mock if missing for demo
-          voltage: healthData.voltage !== undefined ? healthData.voltage : (11.5 + Math.random() * 1.0),
-          rpm: rpm,
-          duty: (rpm / 3000) * 100 // Simulated duty cycle %
+          current,
+          temp,
+          voltage,
+          rpm,
+          duty
         };
         const updated = [...prev, newData];
         if (updated.length > 20) return updated.slice(updated.length - 20);
@@ -125,8 +130,8 @@ export function HardwareHealth({
   }, [apiUrl, isPolling, externalData, isSyncEnabled]);
 
   const currentVal = healthData?.current !== undefined ? healthData.current : (history.length > 0 ? history[history.length - 1].current : 0);
-  const tempVal = healthData?.temp !== undefined ? healthData.temp : (history.length > 0 ? history[history.length - 1].temp : 35);
-  const voltageVal = healthData?.voltage !== undefined ? healthData.voltage : (history.length > 0 ? history[history.length - 1].voltage : 11.8);
+  const tempVal = healthData?.temp !== undefined ? healthData.temp : (history.length > 0 ? history[history.length - 1].temp : 0);
+  const voltageVal = healthData?.voltage !== undefined ? healthData.voltage : (history.length > 0 ? history[history.length - 1].voltage : 0);
   const rpmVal = healthData?.rpm !== undefined ? healthData.rpm : (history.length > 0 ? history[history.length - 1].rpm : 0);
   
   const isTempCritical = tempVal > powerLimits.tempWarning;

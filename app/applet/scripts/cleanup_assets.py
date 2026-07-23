@@ -3,7 +3,9 @@ import os
 import sys
 import struct
 import zlib
+import subprocess
 
+# Try importing PIL (Pillow), but fall back gracefully to standard library pure-Python PNG engine
 HAS_PIL = False
 try:
     from PIL import Image, ImageDraw
@@ -12,6 +14,12 @@ except ImportError:
     HAS_PIL = False
 
 def create_pure_png_rgba(width, height, is_foreground=False, is_round=False):
+    """
+    Creates a valid 32-bit RGBA PNG image as bytes using standard library (zlib, struct)
+    without needing Pillow.
+    """
+    # Generate RGBA pixels (width * height * 4)
+    # Background: #050608 (5, 6, 8, 255) for background, (0, 0, 0, 0) for foreground
     bg_r, bg_g, bg_b, bg_a = (0, 0, 0, 0) if is_foreground else (5, 6, 8, 255)
     star_r, star_g, star_b, star_a = (255, 255, 255, 255)
     purple_r, purple_g, purple_b, purple_a = (168, 85, 247, 255)
@@ -25,36 +33,45 @@ def create_pure_png_rgba(width, height, is_foreground=False, is_round=False):
     raw_data = bytearray()
 
     for y in range(height):
-        raw_data.append(0)
+        raw_data.append(0)  # Filter byte 0 (None)
         dy = y - cy
         for x in range(width):
             dx = x - cx
             dist_sq = dx * dx + dy * dy
             dist = dist_sq ** 0.5
 
+            # Default background
             r, g, b, a = bg_r, bg_g, bg_b, bg_a
 
+            # Round mask check if is_round
             if is_round and not is_foreground and dist > (width / 2.0):
                 raw_data.extend([0, 0, 0, 0])
                 continue
 
+            # Soft radial glow for non-foreground
             if not is_foreground and dist <= r_glow:
                 glow_factor = max(0.0, 1.0 - (dist / r_glow))
                 glow_alpha = int(100 * glow_factor)
+                # Alpha blend cyan glow over background
+                a_out = bg_a
                 r = int(bg_r * (1 - glow_alpha / 255.0) + cyan_r * (glow_alpha / 255.0))
                 g = int(bg_g * (1 - glow_alpha / 255.0) + cyan_g * (glow_alpha / 255.0))
                 b = int(bg_b * (1 - glow_alpha / 255.0) + cyan_b * (glow_alpha / 255.0))
 
+            # 4-pointed star test: abs(dx) + abs(dy) <= threshold
+            # Approximated diamond/star math for fast rendering
             abs_x, abs_y = abs(dx), abs(dy)
             star_val = abs_x + abs_y
             if star_val <= r_out * 0.7 or (abs_x <= r_out and abs_y <= width * 0.05) or (abs_y <= r_out and abs_x <= width * 0.05):
                 r, g, b, a = star_r, star_g, star_b, star_a
 
+            # Central purple circle
             if dist <= r_mid:
                 r, g, b, a = purple_r, purple_g, purple_b, purple_a
 
             raw_data.extend([r, g, b, a])
 
+    # Compress IDAT chunk
     compressed_data = zlib.compress(raw_data, level=9)
 
     def make_chunk(chunk_type, data):
@@ -63,10 +80,17 @@ def create_pure_png_rgba(width, height, is_foreground=False, is_round=False):
         crc = struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
         return length + tag + data + crc
 
+    # PNG Signature
     png_bytes = bytearray(b"\x89PNG\r\n\x1a\n")
+
+    # IHDR: Width, Height, Bit depth = 8, Color type = 6 (RGBA), Compression = 0, Filter = 0, Interlace = 0
     ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     png_bytes.extend(make_chunk("IHDR", ihdr_data))
+
+    # IDAT
     png_bytes.extend(make_chunk("IDAT", compressed_data))
+
+    # IEND
     png_bytes.extend(make_chunk("IEND", b""))
 
     return bytes(png_bytes)
@@ -154,42 +178,51 @@ def generate_asset(file_path, width, height, is_foreground=False, is_round=False
             img_with_mask.paste(img, (0, 0), mask)
             img = img_with_mask
 
+        # Always convert to RGBA (32-bit RGBA)
         clean_img = img.convert('RGBA')
         clean_img.save(file_path, format="PNG", optimize=True)
     else:
+        # Use pure Python RGBA PNG builder
         png_data = create_pure_png_rgba(width, height, is_foreground, is_round)
         with open(file_path, "wb") as f:
             f.write(png_data)
 
 def optimize_png(file_path):
     try:
-        w, h, is_foreground, is_round, is_splash = get_dimensions_and_metadata(file_path)
-
+        # Verify valid PNG header signature
         if os.path.exists(file_path) and os.path.getsize(file_path) > 8:
             with open(file_path, "rb") as f:
                 sig = f.read(8)
                 if sig != b"\x89PNG\r\n\x1a\n":
                     raise ValueError("Invalid PNG signature")
 
+        w, h, is_foreground, is_round, is_splash = get_dimensions_and_metadata(file_path)
+
         if HAS_PIL:
             with Image.open(file_path) as img:
                 img.verify()
             with Image.open(file_path) as img:
+                # Always convert to 32-bit RGBA
                 clean_img = img.convert('RGBA')
+                # Resize if dimensions do not match expected density size
                 if clean_img.size != (w, h):
                     clean_img = clean_img.resize((w, h), Image.Resampling.LANCZOS)
                 clean_img.save(file_path, format='PNG', optimize=True)
                 print(f"✅ Re-encoded & Optimized (32-bit RGBA): {file_path}")
                 return True
         else:
+            # Check IHDR bit depth & color type using standard library zlib/struct
             with open(file_path, "rb") as f:
                 data = f.read()
+            # Read IHDR chunk
             ihdr_pos = data.find(b"IHDR")
             if ihdr_pos != -1 and len(data) >= ihdr_pos + 17:
                 width_curr, height_curr, bit_depth, color_type = struct.unpack(">IIBB", data[ihdr_pos+4:ihdr_pos+14])
+                # Color type 6 = RGBA, bit_depth = 8
                 if color_type == 6 and bit_depth == 8 and (width_curr, height_curr) == (w, h):
                     print(f"✅ Verified 32-bit RGBA PNG: {file_path}")
                     return True
+            # Otherwise regenerate as clean 32-bit RGBA PNG
             generate_asset(file_path, w, h, is_foreground, is_round)
             print(f"✨ Re-encoded to 32-bit RGBA PNG: {file_path}")
             return True
