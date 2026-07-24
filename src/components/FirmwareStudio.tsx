@@ -25,7 +25,7 @@ export const FirmwareStudio: React.FC<FirmwareStudioProps> = ({ onFlash, selecte
         const inoText = await inoRes.text();
         setInoCode(inoText);
 
-        const hRes = await fetch("/firmware/src/Config.h");
+        const hRes = await fetch("/Holospin3D/Config.h");
         const hText = await hRes.text();
         setHCode(hText);
       } catch (e) {
@@ -43,7 +43,7 @@ export const FirmwareStudio: React.FC<FirmwareStudioProps> = ({ onFlash, selecte
         body: inoCode
       });
       // Save Config.h
-      await fetch(`/api/write-file?filename=firmware/src/Config.h`, {
+      await fetch(`/api/write-file?filename=Holospin3D/Config.h`, {
         method: "POST",
         body: hCode
       });

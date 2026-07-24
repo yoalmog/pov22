@@ -315,7 +315,7 @@ Return ONLY the raw JSON object conforming to the schema.`;
       // Wait for compiler pipeline task to complete
       await new Promise(resolve => setTimeout(resolve, 5000));
       
-      res.json({ status: "success", logs, binaryPath: "/firmware/build/firmware.bin" });
+      res.json({ status: "success", logs, binaryPath: "/Holospin3D/build/firmware.bin" });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Compilation failed" });
     }
