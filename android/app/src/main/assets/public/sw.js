@@ -1,1 +1,25 @@
-if(!self.define){let s,e={};const n=(n,i)=>(n=new URL(n+".js",i).href,e[n]||new Promise(e=>{if("document"in self){const s=document.createElement("script");s.src=n,s.onload=e,document.head.appendChild(s)}else s=n,importScripts(n),e()}).then(()=>{let s=e[n];if(!s)throw new Error(`Module ${n} didn’t register its module`);return s}));self.define=(i,l)=>{const r=s||("document"in self?document.currentScript.src:"")||location.href;if(e[r])return;let o={};const u=s=>n(s,r),t={module:{uri:r},exports:o,require:u};e[r]=Promise.all(i.map(s=>t[s]||u(s))).then(s=>(l(...s),o))}}define(["./workbox-9c191d2f"],function(s){"use strict";self.skipWaiting(),s.clientsClaim(),s.precacheAndRoute([{url:"registerSW.js",revision:"402b66900e731ca748771b6fc5e7a068"},{url:"index.html",revision:"76cfe011577c6b51ac22ef1ba4090996"},{url:"icon.svg",revision:"d3470374f2355b4782023b47a106f8ef"},{url:"assets/web-DbZOmahf.js",revision:null},{url:"assets/web-DTXDkusz.js",revision:null},{url:"assets/web-C9spDs4B.js",revision:null},{url:"assets/warm_galaxy_1779781369262-BjRMn1w1.png",revision:null},{url:"assets/user_splash_bg_1779993731939-DUzvHcTR.png",revision:null},{url:"assets/rainbow_galaxy_1779781352503-Bna85r-O.png",revision:null},{url:"assets/index-aJPQFRhX.css",revision:null},{url:"assets/index-Sh5TQ_1n.js",revision:null},{url:"assets/hologram_planet_1779776225377-qfp2wf1H.png",revision:null},{url:"assets/hologram_butterfly_1779775623164-C_kFDLEQ.png",revision:null},{url:"assets/hd_vivid_galaxy_1779780978111-CFShSld2.png",revision:null},{url:"assets/galaxy_background_1779780757373-Cq7C666d.png",revision:null},{url:"icon.svg",revision:"d3470374f2355b4782023b47a106f8ef"},{url:"manifest.webmanifest",revision:"03a5aff50b54e59ebc57a22d1eb2d7d4"}],{}),s.cleanupOutdatedCaches(),s.registerRoute(new s.NavigationRoute(s.createHandlerBoundToURL("index.html")))});
+
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (e) => {
+  self.registration.unregister()
+    .then(() => self.clients.matchAll())
+    .then((clients) => {
+      clients.forEach((client) => {
+        if (client instanceof WindowClient)
+          client.navigate(client.url);
+      });
+      return Promise.resolve();
+    })
+    .then(() => {
+      self.caches.keys().then((cacheNames) => {
+        Promise.all(
+          cacheNames.map((cacheName) => {
+            return self.caches.delete(cacheName);
+          }),
+        );
+      })
+    });
+});
+    

@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import * as React from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload, Image as ImageIcon, Zap, CheckCircle2, Loader2, Video as VideoIcon, Camera } from 'lucide-react';
 import { motion } from 'motion/react';
 

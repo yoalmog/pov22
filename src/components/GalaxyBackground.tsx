@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import * as React from "react";
+import { useState, useEffect, useRef } from "react";
 import galaxy0 from "../assets/images/galaxy_background_1779780757373.png";
 import galaxy1 from "../assets/images/hd_vivid_galaxy_1779780978111.png";
 import butterfly from "../assets/images/hologram_butterfly_1779775623164.png";

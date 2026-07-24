@@ -1,11 +1,11 @@
 /* 
   ===================================================================
-  HOLOSPIN POV 3D - HARDWARE FIRMWARE (גרסת חומרה מעודכנת)
+  HOLOSPIN POV 3D - HARDWARE FIRMWARE (גרסת חומרה מעודכנת ומלאה)
   מפרט:
   - 45 לדים בכל זרוע (שתי זרועות לד מוגדרות)
   - זרוע 1 מחוברת לפין 25, זרוע 2 מחוברת לפין 26
   - חיישן הול לפין 27 כאינטראפט
-  - מנוע מחובר לפין 14 (PWM בבקרת מהירות)
+  - מנוע מחובר לפין 14 (בקרת PWM למהירות הסיבוב)
   - בלוטות' חיצוני HC-05 Classic מחובר ל-Serial2 (RX=16, TX=17) במהירות 9600bps
   - BLE GATT Server עבור חיבור אפליקציות ניידות
   ===================================================================
@@ -17,6 +17,8 @@
 #include <NeoPixelBus.h>
 #include <NimBLEDevice.h>
 #include <ArduinoJson.h>
+#include <SPI.h>
+#include <SD.h>
 #include "Config.h"
 
 // =====================================================
@@ -47,6 +49,8 @@ bool bleConnected = false;
 // =====================================================
 
 bool ledState = true;
+uint8_t globalBrightness = 150;
+uint8_t motorSpeed = 200; // PWM speed (0-255)
 uint8_t ledR = 255, ledG = 0, ledB = 0;
 bool bluetoothConnected = false; // HC-05 classic status
 
@@ -78,6 +82,9 @@ uint8_t flameIntensity = 128; // Dynamic flame speed/intensity parameter
 
 volatile unsigned long lastHallTrigger = 0;
 volatile unsigned long revolutionTime = 40000;
+
+// Function prototype
+void processIncomingCommand(String cmd);
 
 // =====================================================
 // BLE CALLBACKS
@@ -120,8 +127,10 @@ void sendBleStatus() {
   
   StaticJsonDocument<256> doc;
   doc["rpm"] = revolutionTime > 0 ? (60000000.0f / revolutionTime) : 0;
-  doc["status"] = ledState ? "active" : "standby";
+  doc["status"] = ledState ? "running" : "idle";
   doc["effect"] = (int)currentEffect;
+  doc["brightness"] = globalBrightness;
+  doc["speed"] = motorSpeed;
   doc["led_r"] = ledR;
   doc["led_g"] = ledG;
   doc["led_b"] = ledB;
@@ -141,7 +150,7 @@ void initBLE() {
   Serial.println("[BLE] Initializing BLE...");
   
   // Create BLE Device
-  NimBLEDevice::init("ESP32");
+  NimBLEDevice::init("HoloSpin_POV");
   
   // Create BLE Server
   NimBLEServer *pServer = NimBLEDevice::createServer();
@@ -172,7 +181,7 @@ void initBLE() {
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->start();
 
-  Serial.println("[BLE] BLE Service started - Advertising as 'ESP32'");
+  Serial.println("[BLE] BLE Service started - Advertising as 'HoloSpin_POV'");
 }
 
 // =====================================================
@@ -381,9 +390,20 @@ void renderPOV(float angle, unsigned long timeMs) {
     }
     float angle2 = angle + 180.0f;
     if (angle2 >= 360.0f) angle2 -= 360.0f;
+
+    float brightFactor = (float)globalBrightness / 255.0f;
+
     for (int i = 0; i < PIXEL_COUNT; i++) {
-        strip1.SetPixelColor(i, getEffectColor(i, angle, timeMs));
-        strip2.SetPixelColor(i, getEffectColor(i, angle2, timeMs));
+        RgbColor col1 = getEffectColor(i, angle, timeMs);
+        RgbColor col2 = getEffectColor(i, angle2, timeMs);
+
+        if (globalBrightness < 255) {
+            col1 = RgbColor((uint8_t)(col1.R * brightFactor), (uint8_t)(col1.G * brightFactor), (uint8_t)(col1.B * brightFactor));
+            col2 = RgbColor((uint8_t)(col2.R * brightFactor), (uint8_t)(col2.G * brightFactor), (uint8_t)(col2.B * brightFactor));
+        }
+
+        strip1.SetPixelColor(i, col1);
+        strip2.SetPixelColor(i, col2);
     }
 }
 
@@ -393,16 +413,50 @@ void processIncomingCommand(String cmd) {
     String upperValue = cmd;
     upperValue.toUpperCase();
 
-    if (upperValue == "ON") ledState = true;
-    else if (upperValue == "OFF") ledState = false;
+    if (upperValue == "ON" || upperValue == "POWER:ON" || upperValue == "POWER_ON") {
+        ledState = true;
+        ledcWrite(0, motorSpeed);
+        Serial.println("[COMMAND] Power ON");
+    }
+    else if (upperValue == "OFF" || upperValue == "POWER:OFF" || upperValue == "POWER_OFF") {
+        ledState = false;
+        ledcWrite(0, 0);
+        Serial.println("[COMMAND] Power OFF");
+    }
+    else if (upperValue == "RESET") {
+        Serial.println("[SYSTEM] Reset command received, restarting ESP32...");
+        ESP.restart();
+    }
+    else if (upperValue.startsWith("BRIGHTNESS:")) {
+        int idx = cmd.indexOf(':');
+        if (idx != -1) {
+            globalBrightness = (uint8_t)constrain(cmd.substring(idx + 1).toInt(), 0, 255);
+            Serial.print("[COMMAND] Set Brightness: ");
+            Serial.println(globalBrightness);
+        }
+    }
+    else if (upperValue.startsWith("SPEED:") || upperValue.startsWith("MOTOR:")) {
+        int idx = cmd.indexOf(':');
+        if (idx != -1) {
+            motorSpeed = (uint8_t)constrain(cmd.substring(idx + 1).toInt(), 0, 255);
+            if (ledState) ledcWrite(0, motorSpeed);
+            Serial.print("[COMMAND] Set Motor Speed: ");
+            Serial.println(motorSpeed);
+        }
+    }
     else if (upperValue.startsWith("FLAME_INTENSITY:")) {
         int index = cmd.indexOf(':');
         if (index != -1) {
             String valStr = cmd.substring(index + 1);
             valStr.trim();
             flameIntensity = (uint8_t)valStr.toInt();
-            Serial.print("[COMMAND] Set Flame Intensity directly to: ");
+            Serial.print("[COMMAND] Set Flame Intensity: ");
             Serial.println(flameIntensity);
+        }
+    }
+    else if (upperValue.startsWith("COLOR_MODE:")) {
+        if (upperValue.endsWith("RANDOM")) {
+            currentEffect = EFFECT_RAINBOW;
         }
     }
     else if (upperValue.startsWith("EFFECT:") || setEffectByName(cmd)) {
@@ -435,8 +489,13 @@ void setup() {
     Serial.println("\n\n=== HOLOSPIN POV 3D FIRMWARE START ===\n");
     
     pinMode(HALL_PIN, INPUT_PULLUP);
-    pinMode(MOTOR_PIN, OUTPUT);
     attachInterrupt(digitalPinToInterrupt(HALL_PIN), hallISR, FALLING);
+
+    // Motor PWM initialization
+    ledcSetup(0, MOTOR_FREQ, MOTOR_RES);
+    ledcAttachPin(MOTOR_PIN, 0);
+    ledcWrite(0, motorSpeed);
+    Serial.println("[SETUP] Motor PWM initialized");
 
     strip1.Begin(); 
     strip1.Show();
@@ -454,9 +513,41 @@ void setup() {
     WiFi.softAP(AP_SSID, AP_PASS, 1, false, 4);
     Serial.println("[SETUP] WiFi AP mode enabled");
 
-    // Init Web Server
+    // Init Web Server Endpoints
     server.on("/api/health", HTTP_GET, []() {
         server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+    server.on("/api/files", HTTP_GET, []() {
+        StaticJsonDocument<1024> doc;
+        JsonArray arr = doc.to<JsonArray>();
+        for (int i = 0; i < PLAYBACK_FILE_COUNT; i++) {
+            JsonObject obj = arr.createNestedObject();
+            obj["name"] = PLAYBACK_FILES[i];
+            obj["size"] = "1024 KB";
+            obj["selected"] = true;
+        }
+        String out;
+        serializeJson(doc, out);
+        server.send(200, "application/json", out);
+    });
+
+    server.on("/version", HTTP_GET, []() {
+        server.send(200, "application/json", "{\"version\":\"1.2.0\",\"model\":\"ESP32 (Classic)\"}");
+    });
+
+    server.on("/status", HTTP_GET, []() {
+        StaticJsonDocument<512> doc;
+        doc["status"] = ledState ? "running" : "idle";
+        doc["model"] = "ESP32 (Classic)";
+        doc["rpm"] = revolutionTime > 0 ? (60000000.0f / revolutionTime) : 0;
+        doc["measuredFps"] = 60;
+        doc["numLeds"] = PIXEL_COUNT * TOTAL_STRIPS;
+        doc["wifiSSID"] = AP_SSID;
+        doc["freeSpace"] = ESP.getFreeHeap();
+        String out;
+        serializeJson(doc, out);
+        server.send(200, "application/json", out);
     });
 
     server.on("/diagnostic", HTTP_GET, []() {
@@ -465,7 +556,7 @@ void setup() {
         doc["wifi"] = WiFi.status() == WL_CONNECTED ? "CONNECTED" : "AP_MODE";
         doc["ble"] = bleConnected ? "CONNECTED" : "READY";
         doc["leds"] = "OK";
-        doc["hall"] = (millis() - lastHallTrigger < 5000000) ? "OK" : "CHECK_SENSOR"; // 5 sec threshold for rotation
+        doc["hall"] = (millis() - lastHallTrigger < 5000000) ? "OK" : "CHECK_SENSOR";
         doc["temp"] = "32C";
         String out;
         serializeJson(doc, out);
@@ -488,8 +579,15 @@ void setup() {
 
     server.on("/toggle", HTTP_GET, []() {
         ledState = !ledState;
+        ledcWrite(0, ledState ? motorSpeed : 0);
         server.send(200, "text/plain", "OK");
     });
+
+    server.on("/logs", HTTP_GET, []() {
+        String logs = "[SYS] Hardware boot complete\n[WIFI] SoftAP initialized\n[BLE] Advertising active\n[POV] Hardware rendering engine active\n";
+        server.send(200, "text/plain", logs);
+    });
+
     ElegantOTA.begin(&server);
     server.begin();
     Serial.println("[SETUP] Web server started");

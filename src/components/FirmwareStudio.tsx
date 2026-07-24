@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import * as React from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Code2, Play, Upload, Save, FileCode, CheckCircle2, AlertCircle, Loader2, X } from "lucide-react";
 
@@ -21,7 +22,7 @@ export const FirmwareStudio: React.FC<FirmwareStudioProps> = ({ onFlash, selecte
     // Load initial code from project
     const loadCode = async () => {
       try {
-        const inoRes = await fetch("/src/main.cpp");
+        const inoRes = await fetch("/Holospin3D/Holospin3D.ino");
         const inoText = await inoRes.text();
         setInoCode(inoText);
 
@@ -37,8 +38,8 @@ export const FirmwareStudio: React.FC<FirmwareStudioProps> = ({ onFlash, selecte
 
   const handleSave = async () => {
     try {
-      // Save INO (main.cpp)
-      await fetch(`/api/write-file?filename=src/main.cpp`, {
+      // Save INO (Holospin3D.ino)
+      await fetch(`/api/write-file?filename=Holospin3D/Holospin3D.ino`, {
         method: "POST",
         body: inoCode
       });

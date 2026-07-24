@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import * as React from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import { Eye, Ruler, AlertTriangle, CheckCircle2 } from 'lucide-react';
 

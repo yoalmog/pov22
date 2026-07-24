@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import * as React from "react";
+import { useState } from "react";
 import { Esp32Board } from "./Esp32Board";
 import { AlertTriangle, XCircle, CheckCircle2, Info, ChevronDown, ChevronUp, Zap, HardDrive } from "lucide-react";
 

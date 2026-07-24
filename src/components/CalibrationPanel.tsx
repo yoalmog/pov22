@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import * as React from 'react';
+import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Settings2, RotateCw, Activity, Zap, Grid, Circle } from 'lucide-react';
 
