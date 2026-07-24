@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { BleClient } from '@capacitor-community/bluetooth-le';
+import { BleClient, ScanMode } from '@capacitor-community/bluetooth-le';
 
 const ESP32_SERVICE = '0000aaaa-0000-1000-8000-00805f9b34fb'; 
 const ESP32_CHARACTERISTIC_TX = '0000bbbb-0000-1000-8000-00805f9b34fb'; 
