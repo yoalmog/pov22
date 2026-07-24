@@ -221,6 +221,20 @@ Return ONLY the raw JSON object conforming to the schema.`;
   app.get("/diagnostic", (req, res) => proxyToEsp32(req, res, "/diagnostic"));
   app.get("/logs", (req, res) => proxyToEsp32(req, res, "/logs"));
   app.post("/update", upload.single("update"), (req, res) => proxyToEsp32(req, res, "/update"));
+  const serveFirmwareBin = (req, res) => {
+    const buildBin = import_path.default.join(process.cwd(), "Holospin3D", "build", "firmware.bin");
+    const publicBin = import_path.default.join(process.cwd(), "public", "firmware.bin");
+    const targetFile = import_fs.default.existsSync(buildBin) ? buildBin : import_fs.default.existsSync(publicBin) ? publicBin : null;
+    if (!targetFile) {
+      return res.status(404).json({ error: "Firmware binary not found" });
+    }
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", 'attachment; filename="holospin_firmware.bin"');
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(targetFile);
+  };
+  app.get("/firmware.bin", serveFirmwareBin);
+  app.get("/api/firmware/download", serveFirmwareBin);
   app.post("/api/compile", async (req, res) => {
     try {
       const { model } = req.body;

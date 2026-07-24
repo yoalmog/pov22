@@ -2566,7 +2566,6 @@ export default function App() {
       else if (chipId === 9) firmwareModel = "ESP32-S3";
       else if (chipId === 12) firmwareModel = "ESP32-C2";
       else if (chipId === 13) firmwareModel = "ESP32-H2";
-    }
 
       console.log(`Detected firmware chip ID/Model: (${firmwareModel})`);
     console.log(`Current connected hardware: ${chipModel}`);
