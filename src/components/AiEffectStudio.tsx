@@ -69,8 +69,7 @@ export const AiEffectStudio: React.FC<Props> = ({ onEffectGenerated }) => {
       if (engine === "local") {
         // 1. Zero-latency instant Local Offline AI Semantic Compiler
         parsed = compilePromptLocally(prompt);
-        // Simulate a brief generation delay for premium UX feeling
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        
       } else if (engine === "chrome" && isLocalAiAvailable) {
         const isCapacitor = (window as any).Capacitor !== undefined;
         const isAndroid = isCapacitor && (window as any).Capacitor.getPlatform() === 'android';

@@ -1,3 +1,4 @@
+import { exec } from "child_process";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -113,7 +114,7 @@ Return ONLY the raw JSON object conforming to the schema.`;
             lastError = err;
             // Sanitize logs to avoid matching keywords like "error" or "failed" which trigger platform alarms
             const rawMsg = err.message || "unavailable";
-            const cleanMsg = rawMsg.replace(/error/gi, "err_info").replace(/failed/gi, "fld_info").replace(/exception/gi, "exc_info");
+            const cleanMsg = rawMsg;
             console.log(`[Gemini] Model ${model} (attempt ${attempt}) returned retry status: ${cleanMsg}`);
             // Wait briefly before next attempt or next model
             await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
@@ -130,7 +131,7 @@ Return ONLY the raw JSON object conforming to the schema.`;
       res.json(parsed);
     } catch (e: any) {
       const rawMsg = e.message || String(e);
-      const cleanMsg = rawMsg.replace(/error/gi, "err_info").replace(/failed/gi, "fld_info").replace(/exception/gi, "exc_info");
+      const cleanMsg = rawMsg;
       // Use stdout console.log to avoid writing to stderr which triggers platform warning flags
       console.log("[Gemini] Custom effect generation ended with notice:", cleanMsg);
       res.status(500).json({ error: e.message || "Failed to generate effect using Cloud AI" });
@@ -156,7 +157,7 @@ Return ONLY the raw JSON object conforming to the schema.`;
         path: `/uploads/${f}`
       }));
       res.json(resultList);
-    } catch (e) {
+    } catch (e: any) {
       res.status(500).json({ error: "Failed to list files" });
     }
   });
@@ -202,120 +203,64 @@ Return ONLY the raw JSON object conforming to the schema.`;
     }
   });
 
-  let systemStatus = "ready";
-  let systemRpm = 0;
-  let systemModel = "ESP32-D0WDQ6 (Revision 1)";
 
-  const getStatusJson = () => ({
-    status: systemStatus,
-    rpm: systemRpm || (Math.random() * 50 + 2400),
-    model: systemModel,
-    temp: 42.5 + (Math.random() * 2),
-    current: 1.2 + (Math.random() * 0.5),
-    voltage: 12.1,
-    rssi: -45 - Math.floor(Math.random() * 10),
-    uptime: process.uptime(),
-    storage: {
-      mounted: false,
-      total: "---",
-      used: "---"
+  // Determine ESP32 IP from environment variable
+  const ESP32_IP = process.env.ESP32_IP;
+  const proxyToEsp32 = async (req: express.Request, res: express.Response, path: string) => {
+    if (!ESP32_IP) {
+      return res.status(503).json({ error: "No ESP32_IP configured. Device offline." });
     }
-  });
-
-  app.get("/status", (req, res) => {
-    // Return hardware status parameters
-    res.json(getStatusJson());
-  });
-
-  app.get("/version", (req, res) => {
-    res.json({ version: "1.2.0", build: "20260716", model: systemModel });
-  });
-
-  app.post("/api/set-model", (req, res) => {
-    const { model } = req.body;
-    if (model) {
-      systemModel = model;
-      res.json({ status: "success", model: systemModel });
-    } else {
-      res.status(400).json({ error: "Missing model" });
+    try {
+      const response = await fetch(`http://${ESP32_IP}${path}`, {
+        method: req.method,
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
+        headers: { 'Content-Type': req.headers['content-type'] || 'application/json' }
+      });
+      const data = await response.text();
+      res.status(response.status).send(data);
+    } catch (e: any) {
+      res.status(502).json({ error: "Failed to connect to ESP32" });
     }
-  });
+  };
 
-  app.get("/api/status", (req, res) => {
-    res.json(getStatusJson());
-  });
+  app.get("/status", (req, res) => proxyToEsp32(req, res, '/status'));
+  app.get("/version", (req, res) => proxyToEsp32(req, res, '/version'));
+  app.post("/api/set-model", (req, res) => proxyToEsp32(req, res, '/api/set-model'));
+  app.get("/api/status", (req, res) => proxyToEsp32(req, res, '/status'));
+  app.post("/calibrate", (req, res) => proxyToEsp32(req, res, '/calibrate'));
+  app.post("/control", (req, res) => proxyToEsp32(req, res, '/control'));
+  app.post("/config", (req, res) => proxyToEsp32(req, res, '/config'));
+  app.post("/api/upload-frames", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => proxyToEsp32(req, res, '/api/upload-frames'));
+  app.get("/scan", (req, res) => proxyToEsp32(req, res, '/scan'));
+  app.get("/diagnostic", (req, res) => proxyToEsp32(req, res, '/diagnostic'));
+  app.get("/logs", (req, res) => proxyToEsp32(req, res, '/logs'));
+  app.post("/update", upload.single('update'), (req, res) => proxyToEsp32(req, res, '/update'));
 
-  app.post("/calibrate", (req, res) => {
-    systemStatus = "calibrating";
-    setTimeout(() => { systemStatus = "ready"; }, 5000);
-    res.json({ status: "calibrating", message: "Calibration started" });
-  });
+  // Real Firmware Compilation API using arduino-cli
 
-  app.post("/control", (req, res) => {
-    const { motorSpeed } = req.body;
-    if (motorSpeed !== undefined) {
-       systemRpm = motorSpeed * 30; // Scale motor speed to RPM
-    }
-    res.json({ status: "success" });
-  });
-
-  app.post("/config", (req, res) => {
-    res.json({ status: "success", message: "Configuration applied" });
-  });
-
-  app.post("/api/upload-frames", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
-    if (!req.body || req.body.length === 0) {
-      return res.status(400).json({ error: "No binary data received" });
-    }
-    console.log(`[DevServer] Received frame buffer: ${req.body.length} bytes`);
-    res.json({ status: "success", received: req.body.length });
-  });
-
-  app.get("/scan", (req, res) => {
-    res.json([]);
-  });
-
-  app.get("/diagnostic", (req, res) => {
-    res.json({
-      heap: 124500,
-      uptime: process.uptime(),
-      tasks: 8,
-      wifi_rssi: -42,
-      temp: 45.2
-    });
-  });
-
-  app.get("/logs", (req, res) => {
-    res.send("[SYS] Boot complete\n[WIFI] Connected\n[POV] Frame buffer ready\n[HTTP] Server started on port 80");
-  });
-
-  // ElegantOTA Wi-Fi Upload Endpoint
-  app.post("/update", upload.single('update'), (req, res) => {
-    console.log("[DevServer] ElegantOTA update uploaded successfully.");
-    res.status(200).send("Update Success! Device is rebooting...");
-  });
-
-  // Firmware Compilation API
   app.post("/api/compile", async (req, res) => {
     try {
       const { model } = req.body;
       console.log(`[Compiler] Starting build for ${model}...`);
       
-      // Execute compilation pipeline
-      const logs = [
-        `[00:00.100] Resolving dependencies...`,
-        `[00:00.500] Using board: ${model}`,
-        `[00:01.200] Compiling main.ino...`,
-        `[00:02.500] Compiling libraries...`,
-        `[00:03.800] Linking binaries...`,
-        `[00:04.500] Build SUCCESS. Size: 1.2MB (45% of flash)`,
-        `[00:04.800] Ready for upload.`
-      ];
+      const buildDir = path.join(process.cwd(), 'Holospin3D', 'build');
+      if (!fs.existsSync(buildDir)) {
+        fs.mkdirSync(buildDir, { recursive: true });
+      }
 
-      // Wait for compiler pipeline task to complete
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      res.json({ status: "success", logs, binaryPath: "/Holospin3D/build/firmware.bin" });
+      const fqbn = "esp32:esp32:esp32";
+      const sketchPath = path.join(process.cwd(), 'Holospin3D', 'Holospin3D.ino');
+      const binDest = path.join(buildDir, 'firmware.bin');
+
+      exec(`arduino-cli compile --fqbn ${fqbn} --output-dir ${buildDir} ${sketchPath}`, (error, stdout, stderr) => {
+        const logs = (stdout + "\n" + stderr).split("\n");
+        if (error) {
+           console.error("Compilation failed:", error);
+           // Even if arduino-cli is missing, we return the real error
+           return res.status(500).json({ error: "Compilation failed: " + error.message, logs });
+        }
+        res.json({ status: "success", logs, binaryPath: "/Holospin3D/build/firmware.bin" });
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message || "Compilation failed" });
     }

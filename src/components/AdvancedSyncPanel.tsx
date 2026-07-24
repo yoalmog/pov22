@@ -72,7 +72,7 @@ export const AdvancedSyncPanel: React.FC = () => {
       ctx.strokeStyle = '#38bdf8'; // sky-400
       ctx.lineWidth = 2;
       for (let x = 0; x < w; x++) {
-        const offset = Math.sin(t * 0.05) * 3; // Simulated jitter
+        const offset = 0;
         const speed = t * 2 + x + offset;
         const value = speed % 100 < 5 ? -1 : 1;
         const y = h * 0.75 + value * (h * 0.15);
