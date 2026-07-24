@@ -236,6 +236,25 @@ Return ONLY the raw JSON object conforming to the schema.`;
   app.get("/logs", (req, res) => proxyToEsp32(req, res, '/logs'));
   app.post("/update", upload.single('update'), (req, res) => proxyToEsp32(req, res, '/update'));
 
+  // Explicit Firmware Download Endpoint with proper attachment headers
+  const serveFirmwareBin = (req: express.Request, res: express.Response) => {
+    const buildBin = path.join(process.cwd(), 'Holospin3D', 'build', 'firmware.bin');
+    const publicBin = path.join(process.cwd(), 'public', 'firmware.bin');
+    const targetFile = fs.existsSync(buildBin) ? buildBin : (fs.existsSync(publicBin) ? publicBin : null);
+
+    if (!targetFile) {
+      return res.status(404).json({ error: "Firmware binary not found" });
+    }
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="holospin_firmware.bin"');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(targetFile);
+  };
+
+  app.get("/firmware.bin", serveFirmwareBin);
+  app.get("/api/firmware/download", serveFirmwareBin);
+
   // Real Firmware Compilation API using arduino-cli
 
   app.post("/api/compile", async (req, res) => {
