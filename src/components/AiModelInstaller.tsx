@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Cpu, Download, CheckCircle, Trash2, ArrowLeft, Loader2, RefreshCw, AlertTriangle, HelpCircle, FileText, Smartphone } from "lucide-react";
 import { PlatformGuideModal } from "./PlatformGuideModal";
 

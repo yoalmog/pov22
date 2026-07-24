@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useRef, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import { Sparkles, Info } from "lucide-react";
 import { compilePromptLocally } from "./AiEffectStudio";
 

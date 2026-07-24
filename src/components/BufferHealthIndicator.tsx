@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface Props {

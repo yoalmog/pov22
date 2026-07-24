@@ -15,14 +15,12 @@
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": [
         "./*"
       ]
     },
+    "allowImportingTsExtensions": true,
     "noEmit": true
   }
 }

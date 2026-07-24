@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Square, Activity, Sliders, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Play, HelpCircle } from 'lucide-react';
 
 interface Props {

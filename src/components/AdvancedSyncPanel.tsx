@@ -1,5 +1,4 @@
-import * as React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Activity, Clock } from 'lucide-react';
 
 export const AdvancedSyncPanel: React.FC = () => {

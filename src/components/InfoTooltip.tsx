@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { Info } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BleClient } from '@capacitor-community/bluetooth-le';
 
-const ESP32_SERVICE = '0000aaaa-0000-1000-8000-00805f9b34fb';
-const ESP32_CHARACTERISTIC_TX = '0000bbbb-0000-1000-8000-00805f9b34fb';
-const ESP32_CHARACTERISTIC_RX = '0000cccc-0000-1000-8000-00805f9b34fb';
+const ESP32_SERVICE = '0000aaaa-0000-1000-8000-00805f9b34fb'; 
+const ESP32_CHARACTERISTIC_TX = '0000bbbb-0000-1000-8000-00805f9b34fb'; 
+const ESP32_CHARACTERISTIC_RX = '0000cccc-0000-1000-8000-00805f9b34fb'; 
 
 export function useHardwareStream(initialDeviceId: string | null) {
-  const [data, setData] = useState<{ rpm?: number; temp?: number; rssi?: number;[key: string]: any } | null>(null);
+  const [data, setData] = useState<{ rpm?: number; temp?: number; rssi?: number; [key: string]: any } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -33,13 +33,16 @@ export function useHardwareStream(initialDeviceId: string | null) {
     }
   }, [deviceId, isConnected]);
 
-  const scanAndConnect = useCallback(async (): Promise<string> => {
+  const scanAndConnect = useCallback(async () => {
     try {
       setIsScanning(true);
       setError(null);
+      isManuallyDisconnectedRef.current = false;
+      reconnectAttemptRef.current = 0;
+      setReconnectAttemptCount(0);
 
       // Ensure BleClient is initialized before scan
-      try { await BleClient.initialize(); } catch (e) { }
+      try { await BleClient.initialize(); } catch (e) {}
 
       let foundId: string | null = null;
 
@@ -49,24 +52,27 @@ export function useHardwareStream(initialDeviceId: string | null) {
           optionalServices: [ESP32_SERVICE],
           namePrefix: "HoloSpin"
         });
-        if (device) foundId = device.deviceId;
+        if (device) {
+          foundId = device.deviceId;
+        }
       } catch (e: any) {
-        // If filtering by service fails, try accepting all devices (fallback for some Androids)
-        try {
-          const fallbackDevice = await BleClient.requestDevice();
-          if (fallbackDevice) {
-            foundId = fallbackDevice.deviceId;
-          }
+        // Fallback for devices without service prefix filter
+        try { 
+           const fallbackDevice = await BleClient.requestDevice();
+           if (fallbackDevice) {
+             foundId = fallbackDevice.deviceId;
+           }
         } catch (errFallback) {
-          console.warn("requestDevice fallback failed:", errFallback);
-          throw new Error("Device selection cancelled or failed.");
+           console.warn("requestDevice fallback failed:", errFallback);
+           throw new Error("Device selection cancelled or failed.");
         }
       }
 
-      if (!foundId) throw new Error("ESP32 hardware not selected.");
-
-      setDeviceId(foundId);
-      return foundId; // Return so callers can update their own state
+      if (foundId) {
+        setDeviceId(foundId);
+      } else {
+        throw new Error("ESP32 hardware not selected.");
+      }
     } catch (err: any) {
       setError(err.message || "Discovery failed");
       throw err;
@@ -144,7 +150,7 @@ export function useHardwareStream(initialDeviceId: string | null) {
         }
 
         // Drop existing connection if any before reconnecting
-        try { await BleClient.disconnect(deviceId); } catch (e) { }
+        try { await BleClient.disconnect(deviceId); } catch(e) {}
 
         // 20 second connection timeout guard
         if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
@@ -163,7 +169,7 @@ export function useHardwareStream(initialDeviceId: string | null) {
         if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
 
         if (!isActive || isManuallyDisconnectedRef.current) {
-          BleClient.disconnect(deviceId).catch(() => { });
+          BleClient.disconnect(deviceId).catch(() => {});
           return;
         }
 
@@ -206,7 +212,7 @@ export function useHardwareStream(initialDeviceId: string | null) {
           if (typeof initialRssi === 'number') {
             setData(prev => ({ ...prev, rssi: initialRssi }));
           }
-        } catch (e) { }
+        } catch (e) {}
 
       } catch (err: any) {
         if (isActive && !isManuallyDisconnectedRef.current) {
@@ -227,14 +233,46 @@ export function useHardwareStream(initialDeviceId: string | null) {
       if (rssiIntervalRef.current) clearInterval(rssiIntervalRef.current);
 
       if (isSubscribed) {
-        BleClient.stopNotifications(deviceId, ESP32_SERVICE, ESP32_CHARACTERISTIC_TX).catch(() => { });
+        BleClient.stopNotifications(deviceId, ESP32_SERVICE, ESP32_CHARACTERISTIC_TX).catch(() => {});
       }
-      BleClient.disconnect(deviceId).catch(() => { });
+      BleClient.disconnect(deviceId).catch(() => {});
       setIsConnected(false);
       setIsConnecting(false);
       setIsReconnecting(false);
     };
   }, [deviceId]);
 
-  return { streamData: data, isConnected, isScanning, isConnecting, error, sendCommand, scanAndConnect, setDeviceId };
+  const reconnect = useCallback(() => {
+    isManuallyDisconnectedRef.current = false;
+    reconnectAttemptRef.current = 0;
+    setReconnectAttemptCount(0);
+    setIsReconnecting(false);
+    setError(null);
+
+    if (deviceId) {
+      setIsConnecting(true);
+      BleClient.disconnect(deviceId)
+        .catch(() => {})
+        .finally(() => {
+          setDeviceId(null);
+          setTimeout(() => setDeviceId(deviceId), 100);
+        });
+    } else {
+      scanAndConnect().catch(() => {});
+    }
+  }, [deviceId, scanAndConnect]);
+
+  return {
+    streamData: data,
+    isConnected,
+    isScanning,
+    isConnecting,
+    isReconnecting,
+    reconnectAttemptCount,
+    error,
+    sendCommand,
+    scanAndConnect,
+    setDeviceId,
+    reconnect
+  };
 }

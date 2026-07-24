@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Sparkles, Loader2, Send, Cpu, Copy, Check } from "lucide-react";
 import { PlatformGuideModal } from "./PlatformGuideModal";
 import { LedVisualizer } from "./LedVisualizer";
